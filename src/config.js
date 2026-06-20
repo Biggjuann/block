@@ -55,6 +55,14 @@ export const config = {
   forceSimulator: bool(process.env.FORCE_SIMULATOR, false),
   thresholds,
   columns,
+  // How often to refresh Schwab fundamentals (ADV) in ms.
+  fundamentalsRefreshMs: num(process.env.FUNDAMENTALS_REFRESH_MS, 15 * 60 * 1000),
+  // Server-side "whale" alert thresholds + optional Discord push.
+  alerts: {
+    minNotional: num(process.env.ALERT_MIN_NOTIONAL, 25_000_000),
+    minPctADV: num(process.env.ALERT_MIN_PCT_ADV, 5),
+    discordWebhook: process.env.DISCORD_WEBHOOK_URL || '',
+  },
 };
 
 const hasShare = Boolean(config.schwab.tokenUrl);

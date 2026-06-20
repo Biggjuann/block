@@ -1,18 +1,26 @@
-import { api, connectWS, fmt, setStatus, tagClass } from './common.js';
+import {
+  api, connectWS, fmt, setStatus, tagClass, pctAdvClass,
+  loadSettings, saveSettings, loadWatchlist, saveWatchlist,
+  requestNotifyPermission, notify, beep,
+} from './common.js';
 
-const MAX_ROWS = 60; // rows kept per column
-// Columns are size RANGES: { min, max } where max=null means open-ended.
+const MAX_ROWS = 60;
+const BUFFER_CAP = 800;
+
 let columns = [
-  { min: 50000, max: 400000 },
-  { min: 400000, max: 500000 },
-  { min: 500000, max: 800000 },
-  { min: 800000, max: null },
+  { min: 50000, max: 400000 }, { min: 400000, max: 500000 },
+  { min: 500000, max: 800000 }, { min: 800000, max: null },
 ];
-const bodies = []; // index-aligned with columns -> tbody element
+const bodies = [];
+const buffer = [];              // recent trades, newest first
+let settings = loadSettings();
+let watchlist = loadWatchlist();
+const alertsState = [];         // recent alerts, newest first
+let unseen = 0;
+const lastAlertAt = new Map();  // client-side throttle per ticker
 
-function rangeLabel(c) {
-  return c.max ? `${fmt.compact(c.min)}–${fmt.compact(c.max)}` : `${fmt.compact(c.min)}+`;
-}
+// ---------- Tape rendering ----------
+const rangeLabel = (c) => (c.max ? `${fmt.compact(c.min)}–${fmt.compact(c.max)}` : `${fmt.compact(c.min)}+`);
 
 function buildColumns() {
   const viewer = document.getElementById('viewer');
@@ -30,7 +38,7 @@ function buildColumns() {
         <table>
           <thead><tr>
             <th>Time</th><th>Ticker</th><th class="num">Price</th>
-            <th class="num">Size</th><th>Bid&nbsp;Ask</th>
+            <th class="num">Size</th><th class="num">Value</th><th>Bid&nbsp;Ask</th>
           </tr></thead>
           <tbody></tbody>
         </table>
@@ -40,7 +48,6 @@ function buildColumns() {
   }
 }
 
-// A trade belongs to exactly one column: the range that contains its size.
 function columnIndexFor(size) {
   for (let i = 0; i < columns.length; i++) {
     const c = columns[i];
@@ -49,24 +56,205 @@ function columnIndexFor(size) {
   return -1;
 }
 
-function rowHTML(t) {
-  return `
-    <td class="t-time">${fmt.time(t.tradedAt)}</td>
-    <td class="ticker">${t.ticker}</td>
-    <td class="num t-price">${fmt.price(t.price)}</td>
-    <td class="num t-size">${fmt.int(t.size)}</td>
-    <td><span class="${tagClass(t.bidAsk)}">${t.bidAsk}</span></td>`;
+function passesFilter(t) {
+  if (t.value < settings.minNotional) return false;
+  if (settings.watchlistOnly && !watchlist.has(t.ticker)) return false;
+  return true;
 }
 
-function addTrade(t, animate = true) {
+function rowTR(t, flash) {
+  const star = watchlist.has(t.ticker) ? '<span class="star">★</span>' : '';
+  const adv = t.pctADV != null
+    ? `<span class="adv ${pctAdvClass(t.pctADV)}">${t.pctADV}%</span>` : '';
+  const cls = [flash ? 'flash' : '', watchlist.has(t.ticker) ? 'watched' : ''].join(' ').trim();
+  return `<tr class="${cls}">
+    <td class="t-time">${fmt.time(t.tradedAt)}</td>
+    <td class="ticker">${star}${t.ticker}</td>
+    <td class="num t-price">${fmt.price(t.price)}</td>
+    <td class="num t-size">${fmt.int(t.size)} ${adv}</td>
+    <td class="num t-val">${fmt.money(t.value)}</td>
+    <td><span class="${tagClass(t.bidAsk)}">${t.bidAsk}</span></td>
+  </tr>`;
+}
+
+function addRow(t) {
+  if (!passesFilter(t)) return;
   const idx = columnIndexFor(t.size);
   if (idx < 0) return;
   const tbody = bodies[idx];
-  const tr = document.createElement('tr');
-  if (animate) tr.className = 'flash';
-  tr.innerHTML = rowHTML(t);
-  tbody.insertBefore(tr, tbody.firstChild);
+  tbody.insertAdjacentHTML('afterbegin', rowTR(t, true));
   while (tbody.children.length > MAX_ROWS) tbody.removeChild(tbody.lastChild);
+}
+
+function renderAll() {
+  const perCol = columns.map(() => []);
+  for (const t of buffer) {
+    if (!passesFilter(t)) continue;
+    const idx = columnIndexFor(t.size);
+    if (idx >= 0 && perCol[idx].length < MAX_ROWS) perCol[idx].push(rowTR(t, false));
+  }
+  perCol.forEach((rows, i) => { bodies[i].innerHTML = rows.join(''); });
+}
+
+// ---------- Alerts ----------
+function clientAlert(t) {
+  if (settings.alertWatchlistOnly && !watchlist.has(t.ticker)) return null;
+  const reasons = [];
+  if (settings.alertMinNotional && t.value >= settings.alertMinNotional) reasons.push(fmt.money(t.value));
+  if (settings.alertMinPctADV && t.pctADV != null && t.pctADV >= settings.alertMinPctADV) {
+    reasons.push(`${t.pctADV}% ADV`);
+  }
+  if (!reasons.length) return null;
+  const now = Date.now();
+  if (now - (lastAlertAt.get(t.ticker) || 0) < 30000) return null;
+  lastAlertAt.set(t.ticker, now);
+  return { trade: t, reasons, at: t.tradedAt, source: 'you' };
+}
+
+function fireAlert(alert) {
+  alertsState.unshift(alert);
+  if (alertsState.length > 60) alertsState.pop();
+  unseen += 1;
+  renderBadge();
+  renderAlertsList();
+  showToast(alert);
+  if (settings.notify) notify(`${alert.trade.ticker} block`, alert.reasons.join(' · '));
+  if (settings.sound) beep();
+}
+
+function renderBadge() {
+  const b = document.getElementById('bell-badge');
+  if (unseen > 0) { b.hidden = false; b.textContent = unseen > 99 ? '99+' : unseen; }
+  else b.hidden = true;
+}
+
+function alertHTML(a) {
+  const t = a.trade;
+  const icon = a.source === 'market' ? '🐋' : '⭐';
+  return `<div class="alert-item ${a.source}">
+    <div class="ai-top"><span class="ai-icon">${icon}</span>
+      <span class="ai-ticker">${t.ticker}</span>
+      <span class="ai-val">${fmt.money(t.value)}</span>
+      <span class="ai-time">${fmt.time(a.at)}</span></div>
+    <div class="ai-sub">${fmt.int(t.size)} sh @ ${fmt.price(t.price)} ·
+      <span class="${tagClass(t.bidAsk)}">${t.bidAsk}</span> · ${a.reasons.join(' · ')}</div>
+  </div>`;
+}
+
+function renderAlertsList() {
+  const el = document.getElementById('alerts-list');
+  el.innerHTML = alertsState.length
+    ? alertsState.map(alertHTML).join('')
+    : '<div class="empty">No alerts yet. Set your rules in ⚙ Alert rules.</div>';
+}
+
+let toastTimer;
+function showToast(a) {
+  const wrap = document.getElementById('toasts');
+  const div = document.createElement('div');
+  div.className = `toast ${a.source}`;
+  div.innerHTML = alertHTML(a);
+  wrap.appendChild(div);
+  setTimeout(() => div.classList.add('show'), 10);
+  setTimeout(() => {
+    div.classList.remove('show');
+    setTimeout(() => div.remove(), 300);
+  }, 6000);
+  // keep the stack small
+  while (wrap.children.length > 4) wrap.removeChild(wrap.firstChild);
+  clearTimeout(toastTimer);
+}
+
+// ---------- Watchlist UI ----------
+function renderChips() {
+  const el = document.getElementById('watch-chips');
+  el.innerHTML = [...watchlist]
+    .map((s) => `<span class="chip-tag">${s}<button data-rm="${s}">✕</button></span>`)
+    .join('');
+}
+
+// ---------- Toolbar wiring ----------
+function wireToolbar() {
+  // Min notional segmented control
+  const seg = document.getElementById('notional-seg');
+  seg.querySelectorAll('.seg-btn').forEach((b) => {
+    if (Number(b.dataset.val) === settings.minNotional) {
+      seg.querySelector('.seg-btn.active')?.classList.remove('active');
+      b.classList.add('active');
+    }
+    b.addEventListener('click', () => {
+      seg.querySelector('.seg-btn.active')?.classList.remove('active');
+      b.classList.add('active');
+      settings.minNotional = Number(b.dataset.val);
+      saveSettings(settings);
+      renderAll();
+    });
+  });
+
+  // Watchlist
+  const input = document.getElementById('watch-input');
+  input.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const sym = input.value.trim().toUpperCase();
+    if (sym) { watchlist.add(sym); saveWatchlist(watchlist); renderChips(); renderAll(); }
+    input.value = '';
+  });
+  document.getElementById('watch-chips').addEventListener('click', (e) => {
+    const sym = e.target.dataset?.rm;
+    if (sym) { watchlist.delete(sym); saveWatchlist(watchlist); renderChips(); renderAll(); }
+  });
+  const watchOnly = document.getElementById('watch-only');
+  watchOnly.checked = settings.watchlistOnly;
+  watchOnly.addEventListener('change', () => {
+    settings.watchlistOnly = watchOnly.checked; saveSettings(settings); renderAll();
+  });
+
+  // Alert settings popover
+  const pop = document.getElementById('alert-pop');
+  const fields = {
+    notional: document.getElementById('al-notional'),
+    pctadv: document.getElementById('al-pctadv'),
+    watchOnly: document.getElementById('al-watch-only'),
+    notify: document.getElementById('al-notify'),
+    sound: document.getElementById('al-sound'),
+  };
+  fields.notional.value = settings.alertMinNotional;
+  fields.pctadv.value = settings.alertMinPctADV;
+  fields.watchOnly.checked = settings.alertWatchlistOnly;
+  fields.notify.checked = settings.notify;
+  fields.sound.checked = settings.sound;
+
+  document.getElementById('alert-settings-btn').addEventListener('click', () => { pop.hidden = !pop.hidden; });
+  document.getElementById('al-close').addEventListener('click', () => { pop.hidden = true; });
+  fields.notional.addEventListener('input', () => { settings.alertMinNotional = Number(fields.notional.value) || 0; saveSettings(settings); });
+  fields.pctadv.addEventListener('input', () => { settings.alertMinPctADV = Number(fields.pctadv.value) || 0; saveSettings(settings); });
+  fields.watchOnly.addEventListener('change', () => { settings.alertWatchlistOnly = fields.watchOnly.checked; saveSettings(settings); });
+  fields.sound.addEventListener('change', () => { settings.sound = fields.sound.checked; saveSettings(settings); });
+  fields.notify.addEventListener('change', async () => {
+    settings.notify = fields.notify.checked && (await requestNotifyPermission());
+    fields.notify.checked = settings.notify;
+    saveSettings(settings);
+  });
+
+  // Alerts drawer
+  const drawer = document.getElementById('alerts-drawer');
+  document.getElementById('bell').addEventListener('click', () => {
+    drawer.classList.toggle('open');
+    unseen = 0; renderBadge();
+  });
+  document.getElementById('drawer-close').addEventListener('click', () => drawer.classList.remove('open'));
+  document.getElementById('alerts-clear').addEventListener('click', () => {
+    alertsState.length = 0; unseen = 0; renderBadge(); renderAlertsList();
+  });
+}
+
+// ---------- Live data ----------
+function onTrade(t) {
+  buffer.unshift(t);
+  if (buffer.length > BUFFER_CAP) buffer.pop();
+  addRow(t);
+  const a = clientAlert(t);
+  if (a) fireAlert(a);
 }
 
 async function refreshStats() {
@@ -85,18 +273,23 @@ async function init() {
   } catch { /* keep defaults */ }
 
   buildColumns();
+  renderChips();
+  wireToolbar();
+  renderAlertsList();
 
-  // Backfill from persisted trades (oldest first so newest ends up on top).
   try {
     const recent = await api('/api/recent?limit=400');
-    recent.reverse().forEach((t) => addTrade(t, false));
+    recent.reverse().forEach((t) => buffer.unshift(t));
+    buffer.splice(BUFFER_CAP); // cap
+    renderAll();
   } catch { /* ignore */ }
 
   refreshStats();
   setInterval(refreshStats, 5000);
 
   connectWS((msg) => {
-    if (msg.type === 'trade') addTrade(msg.trade);
+    if (msg.type === 'trade') onTrade(msg.trade);
+    else if (msg.type === 'alert') fireAlert({ ...msg.alert, source: 'market' });
     else if (msg.type === 'status') setStatus(msg.status);
   });
 }

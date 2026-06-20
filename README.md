@@ -11,16 +11,28 @@ generates realistic block-trade tape, so the UI is fully live out of the box.
 
 ## Features
 
-- **Tape (`/`)** — four configurable columns (default `50K / 400K / 500K / 800K`)
-  that filter trades by share size. Each print shows time, ticker, price, size,
-  and a bid/ask classification (`Above Ask`, `At Ask`, `Between`, `At Bid`,
-  `Below Bid`) color-coded like a pro terminal.
+- **Tape (`/`)** — columns are size **ranges** (default `50K–400K / 400K–500K /
+  500K–800K / 800K+`); each print lands in exactly one column and shows time,
+  ticker, price, size, **$ notional value**, **% of ADV**, and a bid/ask
+  classification (`Above Ask`, `At Ask`, `Between`, `At Bid`, `Below Bid`)
+  color-coded like a pro terminal.
+- **Trader controls (toolbar)**:
+  - **Min $ notional filter** — focus on the dollars that matter, not raw shares.
+  - **% of ADV context** — each print shows what fraction of a typical day's
+    volume it represents (color-coded), so outliers stand out from routine size.
+  - **Watchlist** — star your tickers, optionally filter the tape to only them.
+  - **Alerts** — set rules (min notional, min %ADV, watchlist-only) and get
+    in-app toasts, optional **browser notifications**, and a sound when a
+    matching block prints. A bell + drawer keeps a running alert feed.
+- **Server-side "whale" alerts** — globally significant blocks (by notional or
+  %ADV) are broadcast to all clients and optionally pushed to **Discord**.
 - **Dashboard (`/dashboard`)** — Top Trades (notional bar chart + table),
   Volume Leaders, a value Heatmap, and a live **Prints** feed. Earnings &
   Ex-Dividend tabs are scaffolded for a future fundamentals feed.
-- **Persistence** — block-sized trades are stored in SQLite and aggregated for
-  the dashboard and for page-load backfill.
-- **Real-time** — trades stream to every connected browser over WebSocket.
+- **Persistence** — block-sized trades are stored in SQLite (with %ADV) and
+  aggregated for the dashboard and for page-load backfill.
+- **Real-time** — trades and alerts stream to every connected browser over
+  WebSocket.
 
 ## Architecture
 
@@ -65,6 +77,10 @@ valid Schwab OAuth **access token** to stream real data.
 | `BLOCK_MIN_SIZE`  | `50000`                       | Min shares to be stored as a block |
 | `PRINT_MIN_SIZE`  | `400000`                      | Min shares to appear in the Prints feed |
 | `FORCE_SIMULATOR` | `false`                       | Force simulator even with a token |
+| `FUNDAMENTALS_REFRESH_MS` | `900000`              | How often to refresh Schwab ADV (ms) |
+| `ALERT_MIN_NOTIONAL` | `25000000`                 | $ notional that triggers a server "whale" alert (0 disables) |
+| `ALERT_MIN_PCT_ADV`  | `5`                        | % of ADV that triggers a server alert (0 disables) |
+| `DISCORD_WEBHOOK_URL`| _(empty)_                  | Optional Discord webhook for off-screen alert push |
 
 ## Deploying to Railway
 

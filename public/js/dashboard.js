@@ -130,6 +130,7 @@ function addPrint(t, animate = true) {
     <td class="ticker">${t.ticker}</td>
     <td class="num t-price">${fmt.price(t.price)}</td>
     <td class="num t-size">${fmt.int(t.size)}</td>
+    <td class="num t-val">${fmt.money(t.value)}</td>
     <td class="t-time">${fmt.time(t.tradedAt)}</td>`;
   printsBody.insertBefore(tr, printsBody.firstChild);
   while (printsBody.children.length > 60) printsBody.removeChild(printsBody.lastChild);

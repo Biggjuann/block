@@ -6,6 +6,8 @@ import { WebSocketServer } from 'ws';
 
 import { config, useSimulator } from './config.js';
 import { startIngest } from './ingest.js';
+import { startFundamentals } from './fundamentals.js';
+import { dispatchDiscord, evaluateAlert } from './alerts.js';
 import {
   getRecentBlockTrades,
   getRecentPrints,
@@ -44,6 +46,7 @@ app.get('/api/config', (_req, res) =>
     printMinSize: config.printMinSize,
     mode: useSimulator ? 'simulator' : 'schwab',
     symbolCount: config.schwab.symbols.length,
+    alerts: { minNotional: config.alerts.minNotional, minPctADV: config.alerts.minPctADV },
     status,
   })
 );
@@ -70,9 +73,19 @@ app.use(express.static(publicDir));
 app.get('/dashboard', (_req, res) => res.sendFile(path.join(publicDir, 'dashboard.html')));
 app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 
-// ---- Start ingestion ----
+// ---- Start fundamentals (ADV) + ingestion ----
+startFundamentals({ symbols: config.schwab.symbols, useSchwab: !useSimulator });
+
 startIngest({
-  broadcast: (trade) => broadcast({ type: 'trade', trade }),
+  broadcast: (trade) => {
+    broadcast({ type: 'trade', trade });
+    // Server-side whale alert: broadcast + optional Discord push.
+    const alert = evaluateAlert(trade);
+    if (alert) {
+      broadcast({ type: 'alert', alert });
+      dispatchDiscord(alert);
+    }
+  },
   onStatus: (state, detail) => {
     status = { state, detail };
     broadcast({ type: 'status', status });

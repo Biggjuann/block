@@ -64,6 +64,81 @@ export function connectWS(onMessage) {
   return () => ws && ws.close();
 }
 
+// ---- Persisted settings + watchlist (localStorage) ----
+const SETTINGS_KEY = 'bti.settings';
+const WATCH_KEY = 'bti.watchlist';
+
+const DEFAULT_SETTINGS = {
+  minNotional: 0, // tape filter: minimum $ notional
+  watchlistOnly: false,
+  alertMinNotional: 5_000_000,
+  alertMinPctADV: 3,
+  alertWatchlistOnly: false,
+  notify: false, // browser notifications
+  sound: true,
+};
+
+export function loadSettings() {
+  try {
+    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
+  } catch {
+    return { ...DEFAULT_SETTINGS };
+  }
+}
+export function saveSettings(s) {
+  localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
+}
+
+export function loadWatchlist() {
+  try {
+    return new Set(JSON.parse(localStorage.getItem(WATCH_KEY) || '[]'));
+  } catch {
+    return new Set();
+  }
+}
+export function saveWatchlist(set) {
+  localStorage.setItem(WATCH_KEY, JSON.stringify([...set]));
+}
+
+// ---- Notifications + sound ----
+export async function requestNotifyPermission() {
+  if (!('Notification' in window)) return false;
+  if (Notification.permission === 'granted') return true;
+  const res = await Notification.requestPermission();
+  return res === 'granted';
+}
+
+export function notify(title, body) {
+  if ('Notification' in window && Notification.permission === 'granted') {
+    try {
+      new Notification(title, { body, icon: '/favicon.ico' });
+    } catch { /* ignore */ }
+  }
+}
+
+let audioCtx;
+export function beep() {
+  try {
+    audioCtx = audioCtx || new (window.AudioContext || window.webkitAudioContext)();
+    const o = audioCtx.createOscillator();
+    const g = audioCtx.createGain();
+    o.type = 'sine';
+    o.frequency.value = 880;
+    g.gain.value = 0.07;
+    o.connect(g);
+    g.connect(audioCtx.destination);
+    o.start();
+    o.stop(audioCtx.currentTime + 0.12);
+  } catch { /* ignore */ }
+}
+
+export function pctAdvClass(pct) {
+  if (pct == null) return '';
+  if (pct >= 10) return 'adv-hot';
+  if (pct >= 3) return 'adv-warm';
+  return 'adv-cool';
+}
+
 export function setStatus(status) {
   const el = document.getElementById('status');
   if (!el) return;

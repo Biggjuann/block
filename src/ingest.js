@@ -1,5 +1,6 @@
 import { config, useSimulator } from './config.js';
 import { insertBlockTrade } from './db.js';
+import { getADV } from './fundamentals.js';
 import { startSchwabStream } from './schwab.js';
 
 /**
@@ -18,12 +19,16 @@ export function classify(price, bid, ask) {
 function finalize(raw) {
   const price = round2(raw.price);
   const size = Math.round(raw.size);
+  const adv = getADV(raw.ticker);
   return {
     ticker: raw.ticker,
     price,
     size,
     value: round2(price * size),
     bidAsk: classify(price, raw.bid, raw.ask),
+    // % of average daily volume this single print represents — the context
+    // that separates a routine block from an outlier.
+    pctADV: adv ? round2((size / adv) * 100) : null,
     tradedAt: raw.tradedAt || Date.now(),
   };
 }

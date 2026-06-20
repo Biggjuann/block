@@ -28,9 +28,16 @@ db.exec(`
   CREATE INDEX IF NOT EXISTS idx_block_trades_value     ON block_trades(value);
 `);
 
+// Migration: add pct_adv (% of average daily volume) if upgrading an older DB.
+const hasPctAdv = db
+  .prepare(`PRAGMA table_info(block_trades)`)
+  .all()
+  .some((c) => c.name === 'pct_adv');
+if (!hasPctAdv) db.exec(`ALTER TABLE block_trades ADD COLUMN pct_adv REAL`);
+
 const insertStmt = db.prepare(`
-  INSERT INTO block_trades (ticker, price, size, value, bid_ask, traded_at)
-  VALUES (@ticker, @price, @size, @value, @bidAsk, @tradedAt)
+  INSERT INTO block_trades (ticker, price, size, value, bid_ask, pct_adv, traded_at)
+  VALUES (@ticker, @price, @size, @value, @bidAsk, @pctADV, @tradedAt)
 `);
 
 export function insertBlockTrade(trade) {
@@ -40,6 +47,7 @@ export function insertBlockTrade(trade) {
     size: trade.size,
     value: trade.value,
     bidAsk: trade.bidAsk,
+    pctADV: trade.pctADV ?? null,
     tradedAt: trade.tradedAt,
   });
   return info.lastInsertRowid;
@@ -76,7 +84,8 @@ export function getTopTrades({ since = startOfTodayMs(), limit = 12 } = {}) {
 export function getRecentPrints({ minSize = config.printMinSize, limit = 30 } = {}) {
   return db
     .prepare(
-      `SELECT ticker, price, size, value, bid_ask AS bidAsk, traded_at AS tradedAt
+      `SELECT ticker, price, size, value, bid_ask AS bidAsk, pct_adv AS pctADV,
+              traded_at AS tradedAt
          FROM block_trades
         WHERE size >= ?
         ORDER BY traded_at DESC
@@ -89,7 +98,8 @@ export function getRecentPrints({ minSize = config.printMinSize, limit = 30 } = 
 export function getRecentBlockTrades({ minSize = config.blockMinSize, limit = 300 } = {}) {
   return db
     .prepare(
-      `SELECT ticker, price, size, value, bid_ask AS bidAsk, traded_at AS tradedAt
+      `SELECT ticker, price, size, value, bid_ask AS bidAsk, pct_adv AS pctADV,
+              traded_at AS tradedAt
          FROM block_trades
         WHERE size >= ?
         ORDER BY traded_at DESC
