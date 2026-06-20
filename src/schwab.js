@@ -3,8 +3,9 @@ import { config } from './config.js';
 import { getToken } from './token.js';
 
 // Field map for the Schwab LEVELONE_EQUITIES streamer service.
-// We use last price/size to synthesize the trade tape and bid/ask to classify it.
-const FIELDS = '0,1,2,3,4,5,8,9'; // sym, bid, ask, last, bidSize, askSize, totalVol, lastSize
+// We synthesize the trade tape from last price/size and use Trade Time (36)
+// to detect genuine new prints; bid/ask classify the print.
+const FIELDS = '0,1,2,3,4,5,8,9,36'; // ...lastSize, tradeTime
 
 // Schwab streamer caps the number of keys per SUBS request; chunk large universes.
 const MAX_KEYS_PER_SUB = 250;
@@ -154,20 +155,25 @@ export function startSchwabStream({ symbols, onTrade, onStatus = () => {} }) {
     const ask = num(item['2'], prev.ask);
     const last = num(item['3'], prev.last);
     const lastSize = num(item['9'], prev.lastSize);
-    state.set(ticker, { bid, ask, last, lastSize });
+    const tradeTime = num(item['36'], prev.tradeTime);
+    state.set(ticker, { bid, ask, last, lastSize, tradeTime, seen: true });
 
-    const printed = last != null && (last !== prev.last || lastSize !== prev.lastSize);
-    if (printed && lastSize) {
-      onTrade({
-        ticker,
-        price: last,
-        // Schwab LAST_SIZE for equities is in round lots (x100 shares).
-        size: lastSize * 100,
-        bid,
-        ask,
-        tradedAt: Date.now(),
-      });
-    }
+    // Skip the initial snapshot (Schwab sends each symbol's last-known, often
+    // stale, values on SUBS and on every reconnect) and only emit when the
+    // Trade Time actually advances — i.e. a real, fresh print. This is what
+    // stops phantom trades from showing up when the market is closed.
+    if (!prev.seen) return;
+    if (tradeTime == null || tradeTime === prev.tradeTime) return;
+    if (!lastSize) return;
+    onTrade({
+      ticker,
+      price: last,
+      // Schwab LAST_SIZE for equities is in round lots (x100 shares).
+      size: lastSize * 100,
+      bid,
+      ask,
+      tradedAt: tradeTime,
+    });
   }
 
   connect();

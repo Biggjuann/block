@@ -1,6 +1,7 @@
 import { config, useSimulator } from './config.js';
 import { insertBlockTrade } from './db.js';
 import { getADV } from './fundamentals.js';
+import { isTradingHours } from './market.js';
 import { startSchwabStream } from './schwab.js';
 
 /**
@@ -104,8 +105,12 @@ const UNIVERSE = [
 function startSimulator(handle) {
   let timer = null;
   const tick = () => {
-    const burst = 1 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < burst; i++) emitOne(handle);
+    // Mirror reality: only generate tape during market hours unless explicitly
+    // told to always run (handy for demos). SIMULATE_ALWAYS=true overrides.
+    if (config.simulateAlways || isTradingHours()) {
+      const burst = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < burst; i++) emitOne(handle);
+    }
     timer = setTimeout(tick, 250 + Math.random() * 650);
   };
   tick();

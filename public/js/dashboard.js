@@ -1,4 +1,4 @@
-import { api, connectWS, fmt, setStatus, tagClass } from './common.js';
+import { api, connectWS, fmt, setStatus, tagClass, setMarketBadge } from './common.js';
 
 let activeTab = 'top';
 let topData = [];
@@ -185,6 +185,8 @@ async function init() {
   renderMain();
   refreshStats();
   setInterval(refreshStats, 5000);
+  setMarketBadge();
+  setInterval(setMarketBadge, 30000);
   setInterval(async () => {
     try { topData = await api('/api/top?limit=18'); renderMain(); } catch { /* ignore */ }
   }, 15000);

@@ -53,6 +53,9 @@ export const config = {
   blockMinSize: num(process.env.BLOCK_MIN_SIZE, thresholds[0] || 50000),
   printMinSize: num(process.env.PRINT_MIN_SIZE, 400000),
   forceSimulator: bool(process.env.FORCE_SIMULATOR, false),
+  // Keep the simulator generating tape 24/7 (e.g. for demos). Off by default
+  // so simulated tape pauses when the market is closed, matching reality.
+  simulateAlways: bool(process.env.SIMULATE_ALWAYS, false),
   thresholds,
   columns,
   // How often to refresh Schwab fundamentals (ADV) in ms.

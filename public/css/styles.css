@@ -21,6 +21,10 @@
 
 * { box-sizing: border-box; }
 
+/* The [hidden] attribute must win over class-level display rules (e.g. the
+   alert popover's display:flex), otherwise toggling `hidden` does nothing. */
+[hidden] { display: none !important; }
+
 html, body {
   margin: 0;
   height: 100%;
@@ -108,6 +112,16 @@ a { color: inherit; text-decoration: none; }
   animation: pulse 1.8s ease-in-out infinite;
 }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:.35} }
+
+.market-badge {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 12px; border-radius: 999px;
+  font-weight: 700; font-size: 11.5px; letter-spacing: 0.5px;
+  border: 1px solid var(--border);
+}
+.market-badge.mk-open   { color: var(--green); background: rgba(43,212,160,0.1); border-color: rgba(43,212,160,0.3); }
+.market-badge.mk-ext    { color: var(--amber); background: rgba(242,177,78,0.1); border-color: rgba(242,177,78,0.3); }
+.market-badge.mk-closed { color: var(--text-faint); background: rgba(126,146,180,0.08); }
 
 .stat-chips { display: flex; gap: 16px; }
 .chip { text-align: right; }

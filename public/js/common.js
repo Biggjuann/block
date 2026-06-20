@@ -139,6 +139,35 @@ export function pctAdvClass(pct) {
   return 'adv-cool';
 }
 
+// ---- Market session (Eastern Time) ----
+export function marketSession(date = new Date()) {
+  const f = new Intl.DateTimeFormat('en-US', {
+    timeZone: 'America/New_York', hourCycle: 'h23',
+    weekday: 'short', hour: '2-digit', minute: '2-digit',
+  });
+  const p = Object.fromEntries(f.formatToParts(date).map((x) => [x.type, x.value]));
+  const m = Number(p.hour) * 60 + Number(p.minute);
+  if (p.weekday === 'Sat' || p.weekday === 'Sun') return 'closed';
+  if (m >= 570 && m < 960) return 'regular';
+  if (m >= 240 && m < 570) return 'pre';
+  if (m >= 960 && m < 1200) return 'post';
+  return 'closed';
+}
+
+export function setMarketBadge() {
+  const el = document.getElementById('market');
+  if (!el) return;
+  const map = {
+    regular: ['OPEN', 'mk-open'],
+    pre: ['PRE-MKT', 'mk-ext'],
+    post: ['AFTER-HRS', 'mk-ext'],
+    closed: ['CLOSED', 'mk-closed'],
+  };
+  const [label, cls] = map[marketSession()];
+  el.className = 'market-badge ' + cls;
+  el.textContent = '● ' + label;
+}
+
 export function setStatus(status) {
   const el = document.getElementById('status');
   if (!el) return;

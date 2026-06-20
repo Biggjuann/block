@@ -1,5 +1,5 @@
 import {
-  api, connectWS, fmt, setStatus, tagClass, pctAdvClass,
+  api, connectWS, fmt, setStatus, tagClass, pctAdvClass, setMarketBadge,
   loadSettings, saveSettings, loadWatchlist, saveWatchlist,
   requestNotifyPermission, notify, beep,
 } from './common.js';
@@ -286,6 +286,8 @@ async function init() {
 
   refreshStats();
   setInterval(refreshStats, 5000);
+  setMarketBadge();
+  setInterval(setMarketBadge, 30000);
 
   connectWS((msg) => {
     if (msg.type === 'trade') onTrade(msg.trade);
