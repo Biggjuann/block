@@ -38,11 +38,12 @@ app.get('/api/health', (_req, res) => res.json({ ok: true, status }));
 
 app.get('/api/config', (_req, res) =>
   res.json({
-    columns: config.columns,
+    columns: config.columns, // [{ min, max|null }] — size ranges per column
+    thresholds: config.thresholds,
     blockMinSize: config.blockMinSize,
     printMinSize: config.printMinSize,
     mode: useSimulator ? 'simulator' : 'schwab',
-    symbols: config.schwab.symbols,
+    symbolCount: config.schwab.symbols.length,
     status,
   })
 );

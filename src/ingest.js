@@ -53,7 +53,6 @@ export function startIngest({ broadcast, onStatus = () => {} }) {
 
   onStatus('connecting', 'schwab');
   const stopStream = startSchwabStream({
-    token: config.schwab.token,
     symbols: config.schwab.symbols,
     onTrade: handle,
     onStatus: (state, detail) => {
@@ -116,14 +115,19 @@ function emitOne(handle) {
   const bid = price - spread;
   const ask = price + spread;
 
-  // Bias toward the block thresholds the columns care about. Occasionally
-  // generate a whale-sized print for the big liquid names.
-  const tier = Math.random();
-  let size;
-  if (tier > 0.96) size = rand(500000, 2500000) * scale;
-  else if (tier > 0.82) size = rand(120000, 500000) * scale;
-  else if (tier > 0.55) size = rand(60000, 200000) * scale;
-  else size = rand(45000, 90000) * scale;
+  // Pick one of the configured size ranges so every column populates, weighting
+  // toward the smaller bands (which is how real block flow is distributed).
+  const cols = config.columns;
+  const r0 = Math.random();
+  // ~55% smallest band, then tapering across the rest.
+  let bandIdx = 0;
+  if (r0 > 0.55) bandIdx = 1 + Math.floor(Math.random() * Math.max(1, cols.length - 1));
+  bandIdx = Math.min(bandIdx, cols.length - 1);
+  const band = cols[bandIdx];
+  const lo = band.min;
+  const hi = band.max ?? band.min * (2 + scale); // open-ended whale band cap
+  // Keep the size strictly inside the band so it lands in the right column.
+  const size = rand(lo, hi);
 
   // Trade somewhere around the inside market, leaning to ask/bid edges.
   const r = Math.random();

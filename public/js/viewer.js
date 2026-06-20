@@ -1,19 +1,30 @@
 import { api, connectWS, fmt, setStatus, tagClass } from './common.js';
 
 const MAX_ROWS = 60; // rows kept per column
-let columns = [50000, 400000, 500000, 800000];
-const bodies = new Map(); // threshold -> tbody element
+// Columns are size RANGES: { min, max } where max=null means open-ended.
+let columns = [
+  { min: 50000, max: 400000 },
+  { min: 400000, max: 500000 },
+  { min: 500000, max: 800000 },
+  { min: 800000, max: null },
+];
+const bodies = []; // index-aligned with columns -> tbody element
+
+function rangeLabel(c) {
+  return c.max ? `${fmt.compact(c.min)}–${fmt.compact(c.max)}` : `${fmt.compact(c.min)}+`;
+}
 
 function buildColumns() {
   const viewer = document.getElementById('viewer');
   viewer.innerHTML = '';
-  for (const threshold of columns) {
+  bodies.length = 0;
+  for (const c of columns) {
     const col = document.createElement('section');
     col.className = 'column';
     col.innerHTML = `
       <div class="column-head">
-        <div class="title">${fmt.compact(threshold)}</div>
-        <div class="meta">size &ge; ${fmt.int(threshold)}</div>
+        <div class="title">${fmt.compact(c.min)}</div>
+        <div class="meta">${rangeLabel(c)} shares</div>
       </div>
       <div class="table-wrap">
         <table>
@@ -25,8 +36,17 @@ function buildColumns() {
         </table>
       </div>`;
     viewer.appendChild(col);
-    bodies.set(threshold, col.querySelector('tbody'));
+    bodies.push(col.querySelector('tbody'));
   }
+}
+
+// A trade belongs to exactly one column: the range that contains its size.
+function columnIndexFor(size) {
+  for (let i = 0; i < columns.length; i++) {
+    const c = columns[i];
+    if (size >= c.min && (c.max == null || size < c.max)) return i;
+  }
+  return -1;
 }
 
 function rowHTML(t) {
@@ -39,15 +59,14 @@ function rowHTML(t) {
 }
 
 function addTrade(t, animate = true) {
-  for (const threshold of columns) {
-    if (t.size < threshold) continue;
-    const tbody = bodies.get(threshold);
-    const tr = document.createElement('tr');
-    if (animate) tr.className = 'flash';
-    tr.innerHTML = rowHTML(t);
-    tbody.insertBefore(tr, tbody.firstChild);
-    while (tbody.children.length > MAX_ROWS) tbody.removeChild(tbody.lastChild);
-  }
+  const idx = columnIndexFor(t.size);
+  if (idx < 0) return;
+  const tbody = bodies[idx];
+  const tr = document.createElement('tr');
+  if (animate) tr.className = 'flash';
+  tr.innerHTML = rowHTML(t);
+  tbody.insertBefore(tr, tbody.firstChild);
+  while (tbody.children.length > MAX_ROWS) tbody.removeChild(tbody.lastChild);
 }
 
 async function refreshStats() {
@@ -69,7 +88,7 @@ async function init() {
 
   // Backfill from persisted trades (oldest first so newest ends up on top).
   try {
-    const recent = await api('/api/recent?limit=300');
+    const recent = await api('/api/recent?limit=400');
     recent.reverse().forEach((t) => addTrade(t, false));
   } catch { /* ignore */ }
 
