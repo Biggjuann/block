@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BTI · Dashboard</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232f8fff'/><text x='50' y='70' font-size='60' text-anchor='middle' fill='white' font-family='monospace' font-weight='bold'>B</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">B</div>
+      <div>BLOCK&nbsp;TRADE&nbsp;INDICATOR<div class="sub">Top trades, prints &amp; flow dashboard</div></div>
+    </div>
+    <nav class="nav">
+      <a href="/">Tape</a>
+      <a href="/dashboard" class="active">Dashboard</a>
+    </nav>
+    <div class="spacer"></div>
+    <div class="stat-chips">
+      <div class="chip"><div class="k">Blocks Today</div><div class="v" id="stat-trades">--</div></div>
+      <div class="chip"><div class="k">Notional</div><div class="v" id="stat-value">--</div></div>
+    </div>
+    <div id="status" class="status-pill warn"><span class="dot"></span>CONNECTING</div>
+  </header>
+
+  <main>
+    <div class="tabs" id="tabs">
+      <div class="tab active" data-tab="top">Top Trades</div>
+      <div class="tab" data-tab="premarket">Volume Leaders</div>
+      <div class="tab" data-tab="heatmap">Heatmap</div>
+      <div class="tab" data-tab="earnings">Earnings <span class="badge">soon</span></div>
+      <div class="tab" data-tab="exdiv">Ex-Dividend <span class="badge">soon</span></div>
+    </div>
+
+    <div class="dash">
+      <div id="main-panel"></div>
+
+      <section class="panel feed">
+        <div class="panel-head">
+          <h2>Prints</h2>
+          <span class="hint" id="prints-count">--</span>
+        </div>
+        <div class="table-wrap">
+          <table>
+            <thead><tr>
+              <th>Ticker</th><th class="num">Price</th>
+              <th class="num">Size</th><th>Time</th>
+            </tr></thead>
+            <tbody id="prints-body"></tbody>
+          </table>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <script type="module" src="/js/dashboard.js"></script>
+</body>
+</html>
