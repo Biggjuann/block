@@ -306,7 +306,9 @@ async function init() {
 
   connectWS((msg) => {
     if (msg.type === 'trade') onTrade(msg.trade);
-    else if (msg.type === 'alert') fireAlert({ ...msg.alert, source: 'market' });
+    // Server "whale" alerts are intentionally NOT surfaced here — the browser
+    // evaluates every trade against YOUR Alert Rules locally, so your settings
+    // are the single source of truth. Server alerts drive Discord push only.
     else if (msg.type === 'status') setStatus(msg.status);
   });
 }
