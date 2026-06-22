@@ -33,6 +33,12 @@ export const fmt = {
     const d = new Date(ms);
     return d.toLocaleTimeString('en-US', { hour12: true, hour: 'numeric', minute: '2-digit', second: '2-digit' });
   },
+  datetime(ms) {
+    const d = new Date(ms);
+    return d.toLocaleString('en-US', {
+      month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
+    });
+  },
 };
 
 export const tagClass = (label) =>

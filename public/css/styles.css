@@ -419,3 +419,13 @@ tr.watched:hover { background: rgba(242,177,78,0.1); }
 }
 .toast.show { opacity: 1; transform: none; }
 .toast .alert-item { box-shadow: 0 12px 40px rgba(0,0,0,0.5); }
+
+/* ---- History ---- */
+.hist-toolbar { gap: 12px; top: 59px; }
+.hist-toolbar select.tool-input { cursor: pointer; }
+.hist-toolbar input[type=datetime-local] { color-scheme: dark; }
+.pager {
+  display: flex; align-items: center; justify-content: center; gap: 16px;
+  padding: 12px; border-top: 1px solid var(--border);
+}
+.pager .ghost-btn[disabled] { opacity: .4; cursor: default; }

@@ -1,0 +1,118 @@
+import Database from 'better-sqlite3';
+import fs from 'node:fs';
+import path from 'node:path';
+import { config } from '../config.js';
+
+let db;
+
+export async function initDb() {
+  const dir = path.dirname(config.dbPath);
+  if (dir && dir !== '.' && !fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+  db = new Database(config.dbPath);
+  db.pragma('journal_mode = WAL');
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS block_trades (
+      id         INTEGER PRIMARY KEY AUTOINCREMENT,
+      ticker     TEXT    NOT NULL,
+      price      REAL    NOT NULL,
+      size       INTEGER NOT NULL,
+      value      REAL    NOT NULL,
+      bid_ask    TEXT    NOT NULL,
+      pct_adv    REAL,
+      traded_at  INTEGER NOT NULL,
+      created_at INTEGER NOT NULL DEFAULT (strftime('%s','now') * 1000)
+    );
+    CREATE INDEX IF NOT EXISTS idx_block_trades_traded_at ON block_trades(traded_at);
+    CREATE INDEX IF NOT EXISTS idx_block_trades_ticker    ON block_trades(ticker);
+    CREATE INDEX IF NOT EXISTS idx_block_trades_value     ON block_trades(value);
+  `);
+  // Migration for DBs created before pct_adv existed.
+  const cols = db.prepare(`PRAGMA table_info(block_trades)`).all().map((c) => c.name);
+  if (!cols.includes('pct_adv')) db.exec(`ALTER TABLE block_trades ADD COLUMN pct_adv REAL`);
+}
+
+const startOfTodayMs = () => {
+  const d = new Date();
+  d.setHours(0, 0, 0, 0);
+  return d.getTime();
+};
+
+export async function insertBlockTrade(t) {
+  const info = db
+    .prepare(
+      `INSERT INTO block_trades (ticker, price, size, value, bid_ask, pct_adv, traded_at)
+       VALUES (@ticker, @price, @size, @value, @bidAsk, @pctADV, @tradedAt)`
+    )
+    .run({
+      ticker: t.ticker, price: t.price, size: t.size, value: t.value,
+      bidAsk: t.bidAsk, pctADV: t.pctADV ?? null, tradedAt: t.tradedAt,
+    });
+  return info.lastInsertRowid;
+}
+
+export async function getTopTrades({ since = startOfTodayMs(), limit = 12 } = {}) {
+  return db
+    .prepare(
+      `SELECT ticker, COUNT(*) AS trades, SUM(size) AS volume, SUM(value) AS value,
+              MAX(traded_at) AS last_at,
+              (SELECT price FROM block_trades b2 WHERE b2.ticker = b1.ticker
+                 ORDER BY traded_at DESC LIMIT 1) AS price
+         FROM block_trades b1
+        WHERE traded_at >= ?
+        GROUP BY ticker ORDER BY value DESC LIMIT ?`
+    )
+    .all(since, limit);
+}
+
+export async function getRecentPrints({ minSize = config.printMinSize, limit = 30 } = {}) {
+  return db
+    .prepare(
+      `SELECT ticker, price, size, value, bid_ask AS bidAsk, pct_adv AS pctADV, traded_at AS tradedAt
+         FROM block_trades WHERE size >= ? ORDER BY traded_at DESC LIMIT ?`
+    )
+    .all(minSize, limit);
+}
+
+export async function getRecentBlockTrades({ minSize = config.blockMinSize, limit = 300 } = {}) {
+  return db
+    .prepare(
+      `SELECT ticker, price, size, value, bid_ask AS bidAsk, pct_adv AS pctADV, traded_at AS tradedAt
+         FROM block_trades WHERE size >= ? ORDER BY traded_at DESC LIMIT ?`
+    )
+    .all(minSize, limit);
+}
+
+export async function getStats({ since = startOfTodayMs() } = {}) {
+  return db
+    .prepare(
+      `SELECT COUNT(*) AS trades, COALESCE(SUM(value),0) AS value, COALESCE(SUM(size),0) AS volume
+         FROM block_trades WHERE traded_at >= ?`
+    )
+    .get(since);
+}
+
+// Flexible historical query backing the History page.
+export async function queryHistory(f = {}) {
+  const where = [];
+  const args = [];
+  if (f.from != null) { where.push('traded_at >= ?'); args.push(f.from); }
+  if (f.to != null) { where.push('traded_at <= ?'); args.push(f.to); }
+  if (f.ticker) { where.push('ticker = ?'); args.push(f.ticker); }
+  if (f.minSize) { where.push('size >= ?'); args.push(f.minSize); }
+  if (f.minNotional) { where.push('value >= ?'); args.push(f.minNotional); }
+  if (f.bidAsk) { where.push('bid_ask = ?'); args.push(f.bidAsk); }
+  const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
+  const order = f.order === 'asc' ? 'ASC' : 'DESC';
+  const sort = f.sort === 'value' ? 'value' : 'traded_at';
+  const limit = f.limit ?? 100;
+  const offset = f.offset ?? 0;
+
+  const total = db.prepare(`SELECT COUNT(*) AS n FROM block_trades ${clause}`).get(...args).n;
+  const rows = db
+    .prepare(
+      `SELECT ticker, price, size, value, bid_ask AS bidAsk, pct_adv AS pctADV, traded_at AS tradedAt
+         FROM block_trades ${clause} ORDER BY ${sort} ${order} LIMIT ? OFFSET ?`
+    )
+    .all(...args, limit, offset);
+  return { rows, total, limit, offset };
+}

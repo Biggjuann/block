@@ -29,8 +29,12 @@ generates realistic block-trade tape, so the UI is fully live out of the box.
 - **Dashboard (`/dashboard`)** — Top Trades (notional bar chart + table),
   Volume Leaders, a value Heatmap, and a live **Prints** feed. Earnings &
   Ex-Dividend tabs are scaffolded for a future fundamentals feed.
-- **Persistence** — block-sized trades are stored in SQLite (with %ADV) and
-  aggregated for the dashboard and for page-load backfill.
+- **History (`/history`)** — a browsable, searchable view of all stored block
+  trades with filters (date range, ticker, min size, min notional, bid/ask
+  side), sortable by time or value, with pagination.
+- **Persistence** — every block-sized trade is stored (with %ADV). Uses
+  **Postgres** when `DATABASE_URL` is set (Railway Postgres — durable and
+  queryable from external SQL/BI tools), and falls back to SQLite locally.
 - **Real-time** — trades and alerts stream to every connected browser over
   WebSocket.
 
@@ -71,7 +75,9 @@ valid Schwab OAuth **access token** to stream real data.
 | Variable          | Default                       | Description |
 |-------------------|-------------------------------|-------------|
 | `PORT`            | `3000`                        | HTTP port |
-| `DB_PATH`         | `./data/blocktrades.sqlite`   | SQLite file path (use a Railway volume) |
+| `DATABASE_URL`    | _(empty)_                     | Postgres connection string (Railway Postgres). When set, used instead of SQLite |
+| `PGSSL`           | _(auto)_                      | Force Postgres SSL `true`/`false` (auto-detected otherwise) |
+| `DB_PATH`         | `./data/blocktrades.sqlite`   | SQLite fallback path (use a Railway volume) |
 | `SCHWAB_TOKEN`    | _(empty)_                     | Shared Schwab OAuth access token |
 | `SCHWAB_SYMBOLS`  | `SPY,QQQ,TSLA,…`              | Comma-separated watchlist |
 | `BLOCK_MIN_SIZE`  | `50000`                       | Min shares to be stored as a block |
@@ -86,9 +92,12 @@ valid Schwab OAuth **access token** to stream real data.
 
 1. Push this repo to GitHub and create a new Railway project from it.
 2. Railway auto-detects Node via Nixpacks (`npm start`, see `railway.json`).
-3. Add the environment variables above (at minimum `SCHWAB_TOKEN`).
-4. Add a **Volume** mounted at `/data` and set `DB_PATH=/data/blocktrades.sqlite`
-   so stored trades survive deploys/restarts.
+3. Add the environment variables above (token-sharing + alert settings).
+4. **Add a Postgres database**: in the Railway project click *New → Database →
+   Postgres*. Railway injects `DATABASE_URL` into the service automatically, so
+   history persists across deploys and is queryable with external SQL/BI tools.
+   (Without it, the app falls back to SQLite — add a `/data` volume and set
+   `DB_PATH=/data/blocktrades.sqlite` if you go that route.)
 5. Deploy. Railway provides `PORT` automatically.
 
 ## API

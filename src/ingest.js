@@ -1,5 +1,5 @@
 import { config, useSimulator } from './config.js';
-import { insertBlockTrade } from './db.js';
+import { insertBlockTrade } from './db/index.js';
 import { getADV } from './fundamentals.js';
 import { isTradingHours } from './market.js';
 import { startSchwabStream } from './schwab.js';
@@ -43,13 +43,10 @@ export function startIngest({ broadcast, onStatus = () => {} }) {
   const handle = (raw) => {
     const trade = finalize(raw);
     if (trade.size < config.blockMinSize) return; // only block-sized prints matter
-    try {
-      const id = insertBlockTrade(trade);
-      trade.id = Number(id);
-    } catch (err) {
-      console.error('db insert failed', err.message);
-    }
+    // Broadcast immediately for a snappy UI; persist in the background so a
+    // (possibly remote Postgres) write never blocks the live tape.
     broadcast(trade);
+    insertBlockTrade(trade).catch((err) => console.error('db insert failed', err.message));
   };
 
   if (useSimulator) {
