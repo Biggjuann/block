@@ -1,0 +1,79 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>BTI · History</title>
+  <link rel="stylesheet" href="/css/styles.css" />
+  <link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><rect width='100' height='100' rx='22' fill='%232f8fff'/><text x='50' y='70' font-size='60' text-anchor='middle' fill='white' font-family='monospace' font-weight='bold'>B</text></svg>" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo">B</div>
+      <div>BLOCK&nbsp;TRADE&nbsp;INDICATOR<div class="sub">Historical block trades</div></div>
+    </div>
+    <nav class="nav">
+      <a href="/">Tape</a>
+      <a href="/dashboard">Dashboard</a>
+      <a href="/history" class="active">History</a>
+    </nav>
+    <div class="spacer"></div>
+    <div id="market" class="market-badge"></div>
+    <div id="storage" class="status-pill" style="background:rgba(155,123,255,.1);border-color:rgba(155,123,255,.3);color:var(--violet)">DB</div>
+  </header>
+
+  <div class="toolbar hist-toolbar">
+    <div class="tool-group"><span class="tool-label">From</span>
+      <input type="datetime-local" id="f-from" class="tool-input" style="width:auto" /></div>
+    <div class="tool-group"><span class="tool-label">To</span>
+      <input type="datetime-local" id="f-to" class="tool-input" style="width:auto" /></div>
+    <div class="tool-group"><span class="tool-label">Ticker</span>
+      <input id="f-ticker" class="tool-input" placeholder="any" maxlength="6" style="width:90px" /></div>
+    <div class="tool-group"><span class="tool-label">Min size</span>
+      <input id="f-size" type="number" class="tool-input" placeholder="0" step="50000" style="width:110px" /></div>
+    <div class="tool-group"><span class="tool-label">Min $</span>
+      <input id="f-notional" type="number" class="tool-input" placeholder="0" step="1000000" style="width:120px" /></div>
+    <div class="tool-group"><span class="tool-label">Side</span>
+      <select id="f-side" class="tool-input" style="width:auto;text-transform:none">
+        <option value="">All</option>
+        <option>Above Ask</option><option>At Ask</option><option>Between</option>
+        <option>At Bid</option><option>Below Bid</option>
+      </select></div>
+    <div class="tool-group"><span class="tool-label">Sort</span>
+      <select id="f-sort" class="tool-input" style="width:auto;text-transform:none">
+        <option value="traded_at">Newest</option>
+        <option value="value">Largest $</option>
+      </select></div>
+    <div class="spacer"></div>
+    <button id="apply" class="ghost-btn">Apply</button>
+    <button id="reset" class="ghost-btn">Reset</button>
+  </div>
+
+  <main style="padding:16px 18px">
+    <section class="panel">
+      <div class="panel-head">
+        <h2>History</h2>
+        <span class="hint" id="result-info">—</span>
+      </div>
+      <div class="table-wrap" style="max-height:calc(100vh - 220px)">
+        <table>
+          <thead><tr>
+            <th>Time</th><th>Ticker</th><th class="num">Price</th>
+            <th class="num">Size</th><th class="num">Value</th>
+            <th class="num">%ADV</th><th>Bid&nbsp;Ask</th>
+          </tr></thead>
+          <tbody id="hist-body"></tbody>
+        </table>
+      </div>
+      <div class="pager">
+        <button id="prev" class="ghost-btn sm">‹ Prev</button>
+        <span id="page-info" class="hint">—</span>
+        <button id="next" class="ghost-btn sm">Next ›</button>
+      </div>
+    </section>
+  </main>
+
+  <script type="module" src="/js/history.js"></script>
+</body>
+</html>

@@ -1,5 +1,7 @@
 import { config, useSimulator } from './config.js';
-import { insertBlockTrade } from './db.js';
+import { insertBlockTrade } from './db/index.js';
+import { getADV } from './fundamentals.js';
+import { isTradingHours } from './market.js';
 import { startSchwabStream } from './schwab.js';
 
 /**
@@ -18,12 +20,16 @@ export function classify(price, bid, ask) {
 function finalize(raw) {
   const price = round2(raw.price);
   const size = Math.round(raw.size);
+  const adv = getADV(raw.ticker);
   return {
     ticker: raw.ticker,
     price,
     size,
     value: round2(price * size),
     bidAsk: classify(price, raw.bid, raw.ask),
+    // % of average daily volume this single print represents — the context
+    // that separates a routine block from an outlier.
+    pctADV: adv ? round2((size / adv) * 100) : null,
     tradedAt: raw.tradedAt || Date.now(),
   };
 }
@@ -37,13 +43,10 @@ export function startIngest({ broadcast, onStatus = () => {} }) {
   const handle = (raw) => {
     const trade = finalize(raw);
     if (trade.size < config.blockMinSize) return; // only block-sized prints matter
-    try {
-      const id = insertBlockTrade(trade);
-      trade.id = Number(id);
-    } catch (err) {
-      console.error('db insert failed', err.message);
-    }
+    // Broadcast immediately for a snappy UI; persist in the background so a
+    // (possibly remote Postgres) write never blocks the live tape.
     broadcast(trade);
+    insertBlockTrade(trade).catch((err) => console.error('db insert failed', err.message));
   };
 
   if (useSimulator) {
@@ -53,7 +56,6 @@ export function startIngest({ broadcast, onStatus = () => {} }) {
 
   onStatus('connecting', 'schwab');
   const stopStream = startSchwabStream({
-    token: config.schwab.token,
     symbols: config.schwab.symbols,
     onTrade: handle,
     onStatus: (state, detail) => {
@@ -100,8 +102,12 @@ const UNIVERSE = [
 function startSimulator(handle) {
   let timer = null;
   const tick = () => {
-    const burst = 1 + Math.floor(Math.random() * 3);
-    for (let i = 0; i < burst; i++) emitOne(handle);
+    // Mirror reality: only generate tape during market hours unless explicitly
+    // told to always run (handy for demos). SIMULATE_ALWAYS=true overrides.
+    if (config.simulateAlways || isTradingHours()) {
+      const burst = 1 + Math.floor(Math.random() * 3);
+      for (let i = 0; i < burst; i++) emitOne(handle);
+    }
     timer = setTimeout(tick, 250 + Math.random() * 650);
   };
   tick();
@@ -116,14 +122,19 @@ function emitOne(handle) {
   const bid = price - spread;
   const ask = price + spread;
 
-  // Bias toward the block thresholds the columns care about. Occasionally
-  // generate a whale-sized print for the big liquid names.
-  const tier = Math.random();
-  let size;
-  if (tier > 0.96) size = rand(500000, 2500000) * scale;
-  else if (tier > 0.82) size = rand(120000, 500000) * scale;
-  else if (tier > 0.55) size = rand(60000, 200000) * scale;
-  else size = rand(45000, 90000) * scale;
+  // Pick one of the configured size ranges so every column populates, weighting
+  // toward the smaller bands (which is how real block flow is distributed).
+  const cols = config.columns;
+  const r0 = Math.random();
+  // ~55% smallest band, then tapering across the rest.
+  let bandIdx = 0;
+  if (r0 > 0.55) bandIdx = 1 + Math.floor(Math.random() * Math.max(1, cols.length - 1));
+  bandIdx = Math.min(bandIdx, cols.length - 1);
+  const band = cols[bandIdx];
+  const lo = band.min;
+  const hi = band.max ?? band.min * (2 + scale); // open-ended whale band cap
+  // Keep the size strictly inside the band so it lands in the right column.
+  const size = rand(lo, hi);
 
   // Trade somewhere around the inside market, leaning to ask/bid edges.
   const r = Math.random();

@@ -1,4 +1,5 @@
 import 'dotenv/config';
+import { UNIVERSE } from './universe.js';
 
 const bool = (v, def = false) => {
   if (v === undefined || v === null || v === '') return def;
@@ -10,22 +11,78 @@ const num = (v, def) => {
   return Number.isFinite(n) ? n : def;
 };
 
+const list = (v) =>
+  (v || '')
+    .split(',')
+    .map((s) => s.trim().toUpperCase())
+    .filter(Boolean);
+
+// Size thresholds that define the tape columns. Columns are RANGES:
+// each column holds trades from its own threshold up to the next one,
+// and the last column is open-ended.
+const thresholds = (list(process.env.BLOCK_THRESHOLDS).length
+  ? list(process.env.BLOCK_THRESHOLDS).map(Number)
+  : [50000, 400000, 500000, 800000]
+).filter((n) => Number.isFinite(n)).sort((a, b) => a - b);
+
+const columns = thresholds.map((min, i) => ({
+  min,
+  max: i < thresholds.length - 1 ? thresholds[i + 1] : null, // null = open-ended
+}));
+
+// The ticker universe the Schwab streamer subscribes to. Override with
+// SCHWAB_SYMBOLS for a custom watchlist, otherwise use the curated universe.
+const symbols = list(process.env.SCHWAB_SYMBOLS).length
+  ? list(process.env.SCHWAB_SYMBOLS)
+  : UNIVERSE;
+
+const authMode = (process.env.SCHWAB_AUTH_MODE || 'auto').toLowerCase();
+
 export const config = {
   port: num(process.env.PORT, 3000),
   dbPath: process.env.DB_PATH || './data/blocktrades.sqlite',
   schwab: {
+    authMode, // 'shared' | 'token' | 'auto'
+    baseUrl: (process.env.SCHWAB_BASE_URL || 'https://api.schwabapi.com').replace(/\/+$/, ''),
     token: process.env.SCHWAB_TOKEN || '',
-    symbols: (process.env.SCHWAB_SYMBOLS ||
-      'SPY,QQQ,TSLA,IWM,AAPL,NVDA,MSFT,GLD,HYG,ORCL,AMZN,PFE,NIO,HIVE,BITF')
-      .split(',')
-      .map((s) => s.trim().toUpperCase())
-      .filter(Boolean),
+    tokenUrl: process.env.SCHWAB_TOKEN_URL || '',
+    tokenShareKey: process.env.SCHWAB_TOKEN_SHARE_KEY || '',
+    symbols,
   },
-  blockMinSize: num(process.env.BLOCK_MIN_SIZE, 50000),
+  // Smallest column min is the floor for what we treat as a block trade.
+  blockMinSize: num(process.env.BLOCK_MIN_SIZE, thresholds[0] || 50000),
   printMinSize: num(process.env.PRINT_MIN_SIZE, 400000),
   forceSimulator: bool(process.env.FORCE_SIMULATOR, false),
-  // Size thresholds that drive the columns in the Block Trade Viewer.
-  columns: [50000, 400000, 500000, 800000],
+  // Keep the simulator generating tape 24/7 (e.g. for demos). Off by default
+  // so simulated tape pauses when the market is closed, matching reality.
+  simulateAlways: bool(process.env.SIMULATE_ALWAYS, false),
+  thresholds,
+  columns,
+  // How often to refresh Schwab fundamentals (ADV) in ms.
+  fundamentalsRefreshMs: num(process.env.FUNDAMENTALS_REFRESH_MS, 15 * 60 * 1000),
+  // Server-side "whale" alert thresholds + optional Discord push.
+  alerts: {
+    minNotional: num(process.env.ALERT_MIN_NOTIONAL, 50_000_000),
+    minPctADV: num(process.env.ALERT_MIN_PCT_ADV, 10),
+    discordWebhook: process.env.DISCORD_WEBHOOK_URL || '',
+  },
 };
 
-export const useSimulator = config.forceSimulator || !config.schwab.token;
+const hasShare = Boolean(config.schwab.tokenUrl);
+const hasStatic = Boolean(config.schwab.token);
+
+function decideSimulator() {
+  if (config.forceSimulator) return true;
+  switch (authMode) {
+    case 'shared':
+    case 'share':
+      return !hasShare;
+    case 'token':
+    case 'static':
+      return !hasStatic;
+    default: // auto
+      return !(hasShare || hasStatic);
+  }
+}
+
+export const useSimulator = decideSimulator();

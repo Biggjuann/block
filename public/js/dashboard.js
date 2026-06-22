@@ -1,4 +1,4 @@
-import { api, connectWS, fmt, setStatus, tagClass } from './common.js';
+import { api, connectWS, fmt, setStatus, tagClass, setMarketBadge } from './common.js';
 
 let activeTab = 'top';
 let topData = [];
@@ -130,6 +130,7 @@ function addPrint(t, animate = true) {
     <td class="ticker">${t.ticker}</td>
     <td class="num t-price">${fmt.price(t.price)}</td>
     <td class="num t-size">${fmt.int(t.size)}</td>
+    <td class="num t-val">${fmt.money(t.value)}</td>
     <td class="t-time">${fmt.time(t.tradedAt)}</td>`;
   printsBody.insertBefore(tr, printsBody.firstChild);
   while (printsBody.children.length > 60) printsBody.removeChild(printsBody.lastChild);
@@ -184,6 +185,8 @@ async function init() {
   renderMain();
   refreshStats();
   setInterval(refreshStats, 5000);
+  setMarketBadge();
+  setInterval(setMarketBadge, 30000);
   setInterval(async () => {
     try { topData = await api('/api/top?limit=18'); renderMain(); } catch { /* ignore */ }
   }, 15000);
