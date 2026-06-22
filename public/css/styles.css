@@ -429,3 +429,67 @@ tr.watched:hover { background: rgba(242,177,78,0.1); }
   padding: 12px; border-top: 1px solid var(--border);
 }
 .pager .ghost-btn[disabled] { opacity: .4; cursor: default; }
+
+/* ---- Clickable tickers ---- */
+.ticker, .sym, .ai-ticker { cursor: pointer; }
+.ticker:hover, .sym:hover { text-decoration: underline; text-underline-offset: 2px; }
+
+/* ---- Sweep alerts ---- */
+.alert-item.sweep { border-left-color: var(--amber); background: rgba(242,177,78,0.06); }
+.alert-item.sweep.buy { border-left-color: var(--green); }
+.alert-item.sweep.sell { border-left-color: var(--red); }
+.sweep-tag { font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 6px; letter-spacing: .3px; }
+.sweep-tag.buy { color: var(--green); background: rgba(43,212,160,0.15); }
+.sweep-tag.sell { color: var(--red); background: rgba(255,93,108,0.15); }
+
+/* ---- Net pressure (dashboard) ---- */
+.pressure-list { padding: 14px 18px; display: flex; flex-direction: column; gap: 9px; }
+.pr-row { display: grid; grid-template-columns: 56px 1fr 96px; align-items: center; gap: 12px; }
+.pr-row .sym { font-weight: 800; color: var(--accent); font-size: 13px; }
+.pr-track { display: flex; align-items: center; height: 18px; border-left: 1px solid var(--border); }
+.pr-half { width: 50%; height: 100%; display: flex; }
+.pr-half.left { justify-content: flex-end; }
+.pr-sell { background: linear-gradient(90deg, var(--red), rgba(255,93,108,.5)); height: 100%; border-radius: 4px 0 0 4px; }
+.pr-buy { background: linear-gradient(90deg, rgba(43,212,160,.5), var(--green)); height: 100%; border-radius: 0 4px 4px 0; }
+.pr-net { font-family: var(--mono); font-weight: 800; font-size: 12px; text-align: right; }
+.pr-net.pos { color: var(--green); }
+.pr-net.neg { color: var(--red); }
+
+/* ---- Chart modal ---- */
+.chart-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }
+.chart-backdrop { position: absolute; inset: 0; background: rgba(3,6,13,0.72); backdrop-filter: blur(4px); }
+.chart-dialog {
+  position: relative; width: min(880px, 94vw); max-height: 92vh; overflow-y: auto;
+  background: var(--panel-solid); border: 1px solid var(--border-bright);
+  border-radius: 16px; box-shadow: 0 30px 80px rgba(0,0,0,0.6); padding: 16px 18px;
+}
+.chart-head { display: flex; align-items: center; gap: 14px; margin-bottom: 12px; }
+.chart-title { display: flex; align-items: baseline; gap: 12px; flex: 1; }
+.ct-sym { font-size: 24px; font-weight: 800; color: var(--accent); }
+.ct-last { font-family: var(--mono); font-size: 18px; font-weight: 700; }
+.ct-count { color: var(--text-faint); font-size: 12px; }
+
+.pressure-bar { margin-bottom: 12px; }
+.pb-track { display: flex; height: 10px; border-radius: 6px; overflow: hidden; background: rgba(126,146,180,0.1); }
+.pb-buy { background: var(--green); }
+.pb-sell { background: var(--red); }
+.pb-labels { display: flex; justify-content: space-between; margin-top: 6px; font-family: var(--mono); font-size: 11.5px; }
+.pb-b { color: var(--green); font-weight: 700; }
+.pb-s { color: var(--red); font-weight: 700; }
+.pb-net { font-weight: 800; }
+.pb-net.pos { color: var(--green); }
+.pb-net.neg { color: var(--red); }
+
+.chart-canvas-wrap { position: relative; }
+#ct-canvas { width: 100%; display: block; }
+.chart-tip {
+  position: absolute; pointer-events: none; z-index: 2;
+  background: rgba(8,13,24,0.96); border: 1px solid var(--border-bright);
+  border-radius: 8px; padding: 7px 9px; font-family: var(--mono); font-size: 11px;
+  color: var(--text); white-space: nowrap; box-shadow: 0 8px 24px rgba(0,0,0,0.5);
+}
+.chart-legend { display: flex; gap: 16px; align-items: center; padding: 10px 2px; font-size: 11.5px; color: var(--text-dim); flex-wrap: wrap; }
+.chart-legend i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 5px; vertical-align: middle; }
+.chart-legend .ct-hint { color: var(--text-faint); margin-left: auto; }
+.chart-prints { max-height: 240px; overflow-y: auto; border-top: 1px solid var(--border); }
+.chart-prints table { width: 100%; }

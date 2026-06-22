@@ -1,4 +1,5 @@
 import { api, fmt, tagClass, pctAdvClass, setMarketBadge } from './common.js';
+import { enableTickerClicks } from './chart.js';
 
 const PAGE = 100;
 let offset = 0;
@@ -83,6 +84,7 @@ async function init() {
   } catch { /* ignore */ }
   setMarketBadge();
   setInterval(setMarketBadge, 30000);
+  enableTickerClicks();
   load();
 }
 

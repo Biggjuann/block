@@ -84,6 +84,7 @@ const DEFAULT_SETTINGS = {
   alertMinNotional: 50_000_000,
   alertMinPctADV: 10,
   alertWatchlistOnly: false,
+  sweepAlerts: true, // surface server-detected sweeps
   notify: false, // browser notifications
   sound: true,
 };

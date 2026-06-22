@@ -105,6 +105,7 @@ function startSimulator(handle) {
     // Mirror reality: only generate tape during market hours unless explicitly
     // told to always run (handy for demos). SIMULATE_ALWAYS=true overrides.
     if (config.simulateAlways || isTradingHours()) {
+      if (Math.random() < 0.04) emitSweepBurst(handle); // occasional aggressive sweep
       const burst = 1 + Math.floor(Math.random() * 3);
       for (let i = 0; i < burst; i++) emitOne(handle);
     }
@@ -112,6 +113,27 @@ function startSimulator(handle) {
   };
   tick();
   return () => clearTimeout(timer);
+}
+
+// Emit a directional burst of same-side aggressive prints on one liquid name,
+// so sweep detection has something to catch in simulator/demo mode.
+function emitSweepBurst(handle) {
+  const liquid = UNIVERSE.filter(([, base]) => base > 20);
+  const [ticker, base] = liquid[Math.floor(Math.random() * liquid.length)];
+  const price = base * (1 + (Math.random() - 0.5) * 0.01);
+  const spread = Math.max(0.01, price * 0.0008);
+  const bid = price - spread;
+  const ask = price + spread;
+  const buy = Math.random() > 0.5;
+  const n = 3 + Math.floor(Math.random() * 4); // 3–6 prints
+  const now = Date.now();
+  for (let i = 0; i < n; i++) {
+    const tradePrice = buy ? ask + spread * i * 0.5 : bid - spread * i * 0.5;
+    handle({
+      ticker, price: tradePrice, size: rand(50000, 220000),
+      bid, ask, tradedAt: now + i * 30,
+    });
+  }
 }
 
 function emitOne(handle) {

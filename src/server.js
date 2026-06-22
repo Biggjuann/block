@@ -7,9 +7,12 @@ import { WebSocketServer } from 'ws';
 import { config, useSimulator } from './config.js';
 import { startIngest } from './ingest.js';
 import { startFundamentals } from './fundamentals.js';
-import { dispatchDiscord, evaluateAlert } from './alerts.js';
+import { dispatchDiscord, dispatchDiscordSweep, evaluateAlert } from './alerts.js';
+import { detectSweep } from './sweeps.js';
+import { getChartData } from './chart.js';
 import {
   dbBackend,
+  getPressure,
   getRecentBlockTrades,
   getRecentPrints,
   getStats,
@@ -79,6 +82,17 @@ app.get('/api/prints', handle(async (req, res) => {
 
 app.get('/api/stats', handle(async (_req, res) => res.json(await getStats())));
 
+app.get('/api/pressure', handle(async (req, res) => {
+  const limit = clamp(Number(req.query.limit) || 14, 1, 50);
+  res.json(await getPressure({ limit }));
+}));
+
+app.get('/api/chart', handle(async (req, res) => {
+  const symbol = String(req.query.symbol || '').trim();
+  if (!symbol) return res.status(400).json({ error: 'symbol required' });
+  res.json(await getChartData(symbol));
+}));
+
 // Historical query backing the History page.
 app.get('/api/history', handle(async (req, res) => {
   const q = req.query;
@@ -118,6 +132,12 @@ startIngest({
     if (alert) {
       broadcast({ type: 'alert', alert });
       dispatchDiscord(alert);
+    }
+    // Sweep detection: directional burst of aggressive same-side prints.
+    const sweep = detectSweep(trade);
+    if (sweep) {
+      broadcast({ type: 'sweep', sweep });
+      dispatchDiscordSweep(sweep);
     }
   },
   onStatus: (state, detail) => {

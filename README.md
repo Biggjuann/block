@@ -26,6 +26,15 @@ generates realistic block-trade tape, so the UI is fully live out of the box.
     matching block prints. A bell + drawer keeps a running alert feed.
 - **Server-side "whale" alerts** — globally significant blocks (by notional or
   %ADV) are broadcast to all clients and optionally pushed to **Discord**.
+- **Click-through charts** — click any ticker (tape, dashboard, or history) to
+  open an intraday price chart with the day's block prints overlaid as markers
+  (green = buy-side, red = sell-side, sized by notional) and a net buy/sell
+  pressure header. Real intraday data from Schwab `pricehistory`, synthesized
+  in simulator mode.
+- **Sweep detection** — a directional burst of same-side aggressive prints in a
+  short window flags a SWEEP (⚡), surfaced as an alert and pushed to Discord.
+- **Net buy/sell pressure** — a Dashboard tab ranks tickers by aggressor-side
+  notional (buys lifting offers vs sells hitting bids).
 - **Dashboard (`/dashboard`)** — Top Trades (notional bar chart + table),
   Volume Leaders, a value Heatmap, and a live **Prints** feed. Earnings &
   Ex-Dividend tabs are scaffolded for a future fundamentals feed.

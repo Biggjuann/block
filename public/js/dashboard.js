@@ -1,7 +1,9 @@
 import { api, connectWS, fmt, setStatus, tagClass, setMarketBadge } from './common.js';
+import { enableTickerClicks } from './chart.js';
 
 let activeTab = 'top';
 let topData = [];
+let pressureData = [];
 const PRINT_MIN = 400000;
 const printsBody = document.getElementById('prints-body');
 const mainPanel = document.getElementById('main-panel');
@@ -20,6 +22,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 // ---- Main panel renderers ----
 function renderMain() {
   if (activeTab === 'top') return renderTop();
+  if (activeTab === 'pressure') return renderPressure();
   if (activeTab === 'premarket') return renderVolume();
   if (activeTab === 'heatmap') return renderHeatmap();
   if (activeTab === 'earnings') return renderSoon('Earnings Calendar', '📅',
@@ -66,6 +69,31 @@ function renderTop() {
           </table>
         </div>
       </div>
+    </section>`;
+}
+
+function renderPressure() {
+  const max = Math.max(1, ...pressureData.flatMap((d) => [d.buyValue, d.sellValue]));
+  const rows = pressureData
+    .map((d) => {
+      const fb = (d.buyValue / max) * 100;
+      const fs = (d.sellValue / max) * 100;
+      const netCls = d.net >= 0 ? 'pos' : 'neg';
+      return `<div class="pr-row">
+        <div class="sym">${d.ticker}</div>
+        <div class="pr-track">
+          <div class="pr-half left"><div class="pr-sell" style="width:${fs}%"></div></div>
+          <div class="pr-half right"><div class="pr-buy" style="width:${fb}%"></div></div>
+        </div>
+        <div class="pr-net ${netCls}">${d.net >= 0 ? '+' : '−'}${fmt.money(Math.abs(d.net))}</div>
+      </div>`;
+    })
+    .join('');
+  mainPanel.innerHTML = `
+    <section class="panel">
+      <div class="panel-head"><h2>Net Buy / Sell Pressure</h2>
+        <span class="hint">aggressor side · today · <span style="color:var(--green)">▲ buy</span> / <span style="color:var(--red)">sell ▼</span></span></div>
+      <div class="pressure-list">${rows || emptyMsg()}</div>
     </section>`;
 }
 
@@ -174,8 +202,10 @@ async function init() {
   } catch { /* ignore */ }
 
   try {
-    topData = await api('/api/top?limit=18');
-  } catch { topData = []; }
+    [topData, pressureData] = await Promise.all([
+      api('/api/top?limit=18'), api('/api/pressure?limit=16'),
+    ]);
+  } catch { topData = []; pressureData = []; }
 
   try {
     const prints = await api('/api/prints?limit=40');
@@ -183,12 +213,18 @@ async function init() {
   } catch { /* ignore */ }
 
   renderMain();
+  enableTickerClicks();
   refreshStats();
   setInterval(refreshStats, 5000);
   setMarketBadge();
   setInterval(setMarketBadge, 30000);
   setInterval(async () => {
-    try { topData = await api('/api/top?limit=18'); renderMain(); } catch { /* ignore */ }
+    try {
+      [topData, pressureData] = await Promise.all([
+        api('/api/top?limit=18'), api('/api/pressure?limit=16'),
+      ]);
+      renderMain();
+    } catch { /* ignore */ }
   }, 15000);
 
   connectWS((msg) => {

@@ -13,4 +13,5 @@ export const getTopTrades = impl.getTopTrades;
 export const getRecentPrints = impl.getRecentPrints;
 export const getRecentBlockTrades = impl.getRecentBlockTrades;
 export const getStats = impl.getStats;
+export const getPressure = impl.getPressure;
 export const queryHistory = impl.queryHistory;

@@ -1,0 +1,196 @@
+import { api, fmt, tagClass } from './common.js';
+
+// Click-through intraday chart: price line with block prints overlaid as
+// markers (green = buy-side, red = sell-side, violet = between), plus a net
+// buy/sell pressure header. Imported by every page; clicking any ticker opens it.
+
+const COLORS = {
+  buy: '#2bd4a0', sell: '#ff5d6c', neutral: '#9b7bff',
+  line: '#2f8fff', grid: 'rgba(80,110,160,0.18)', text: '#7e92b4',
+};
+
+let modal, canvas, ctx, current;
+
+function build() {
+  modal = document.createElement('div');
+  modal.className = 'chart-modal';
+  modal.hidden = true;
+  modal.innerHTML = `
+    <div class="chart-backdrop" data-close></div>
+    <div class="chart-dialog">
+      <div class="chart-head">
+        <div class="chart-title">
+          <span class="ct-sym" id="ct-sym">—</span>
+          <span class="ct-last" id="ct-last"></span>
+          <span class="ct-count" id="ct-count"></span>
+        </div>
+        <button class="ghost-btn sm" data-close>✕</button>
+      </div>
+      <div class="pressure-bar" id="ct-pressure"></div>
+      <div class="chart-canvas-wrap"><canvas id="ct-canvas"></canvas>
+        <div class="chart-tip" id="ct-tip" hidden></div>
+      </div>
+      <div class="chart-legend">
+        <span><i style="background:${COLORS.buy}"></i>Buy (lift offer)</span>
+        <span><i style="background:${COLORS.sell}"></i>Sell (hit bid)</span>
+        <span><i style="background:${COLORS.neutral}"></i>Between</span>
+        <span class="ct-hint">marker size = $ notional</span>
+      </div>
+      <div class="chart-prints"><table><thead><tr>
+        <th>Time</th><th>Price</th><th class="num">Size</th><th class="num">Value</th><th>Side</th>
+      </tr></thead><tbody id="ct-prints"></tbody></table></div>
+    </div>`;
+  document.body.appendChild(modal);
+  canvas = modal.querySelector('#ct-canvas');
+  ctx = canvas.getContext('2d');
+  modal.addEventListener('click', (e) => { if (e.target.dataset.close !== undefined) close(); });
+  document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
+  canvas.addEventListener('mousemove', onHover);
+  canvas.addEventListener('mouseleave', () => { modal.querySelector('#ct-tip').hidden = true; });
+  window.addEventListener('resize', () => { if (!modal.hidden && current) draw(current); });
+}
+
+function close() { modal.hidden = true; current = null; }
+
+export async function openChart(symbol) {
+  if (!modal) build();
+  const sym = String(symbol).toUpperCase();
+  modal.hidden = false;
+  modal.querySelector('#ct-sym').textContent = sym;
+  modal.querySelector('#ct-last').textContent = '';
+  modal.querySelector('#ct-count').textContent = 'loading…';
+  modal.querySelector('#ct-prints').innerHTML = '';
+  modal.querySelector('#ct-pressure').innerHTML = '';
+  try {
+    const data = await api('/api/chart?symbol=' + encodeURIComponent(sym));
+    current = data;
+    renderHeader(data);
+    renderPrints(data);
+    draw(data);
+  } catch {
+    modal.querySelector('#ct-count').textContent = 'no data';
+  }
+}
+
+function renderHeader(d) {
+  modal.querySelector('#ct-last').textContent = fmt.price(d.summary.last);
+  modal.querySelector('#ct-count').textContent = `${d.summary.count} prints today`;
+  const { buyValue, sellValue, net } = d.summary;
+  const total = buyValue + sellValue || 1;
+  const buyPct = (buyValue / total) * 100;
+  const netCls = net >= 0 ? 'pos' : 'neg';
+  modal.querySelector('#ct-pressure').innerHTML = `
+    <div class="pb-track">
+      <div class="pb-buy" style="width:${buyPct}%"></div>
+      <div class="pb-sell" style="width:${100 - buyPct}%"></div>
+    </div>
+    <div class="pb-labels">
+      <span class="pb-b">▲ ${fmt.money(buyValue)} buy</span>
+      <span class="pb-net ${netCls}">Net ${net >= 0 ? '+' : '−'}${fmt.money(Math.abs(net))}</span>
+      <span class="pb-s">${fmt.money(sellValue)} sell ▼</span>
+    </div>`;
+}
+
+function renderPrints(d) {
+  const rows = [...d.prints].reverse().slice(0, 40).map((p) => `
+    <tr><td class="t-time">${fmt.time(p.t)}</td>
+      <td class="t-price">${fmt.price(p.price)}</td>
+      <td class="num t-size">${fmt.int(p.size)}</td>
+      <td class="num t-val">${fmt.money(p.value)}</td>
+      <td><span class="${tagClass(p.bidAsk)}">${p.bidAsk}</span></td></tr>`).join('');
+  modal.querySelector('#ct-prints').innerHTML = rows || '<tr><td colspan="5" class="empty">No prints today.</td></tr>';
+}
+
+// ---- Canvas drawing ----
+let plot; // cached geometry for hover hit-testing
+
+function draw(d) {
+  const wrap = canvas.parentElement;
+  const W = wrap.clientWidth;
+  const H = Math.max(240, Math.min(420, Math.round(W * 0.42)));
+  const dpr = window.devicePixelRatio || 1;
+  canvas.width = W * dpr; canvas.height = H * dpr;
+  canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
+  ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  ctx.clearRect(0, 0, W, H);
+
+  const pad = { l: 56, r: 14, t: 14, b: 24 };
+  const series = d.series.length ? d.series : d.prints.map((p) => ({ t: p.t, price: p.price }));
+  if (!series.length) return;
+
+  const xs = series.map((p) => p.t).concat(d.prints.map((p) => p.t));
+  const ys = series.map((p) => p.price).concat(d.prints.map((p) => p.price));
+  const xMin = Math.min(...xs), xMax = Math.max(...xs);
+  let yMin = Math.min(...ys), yMax = Math.max(...ys);
+  const padY = (yMax - yMin) * 0.08 || yMax * 0.01 || 1;
+  yMin -= padY; yMax += padY;
+
+  const X = (t) => pad.l + ((t - xMin) / (xMax - xMin || 1)) * (W - pad.l - pad.r);
+  const Y = (p) => pad.t + (1 - (p - yMin) / (yMax - yMin || 1)) * (H - pad.t - pad.b);
+
+  // grid + y labels
+  ctx.font = '10px ui-monospace, monospace';
+  ctx.fillStyle = COLORS.text; ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
+  for (let i = 0; i <= 4; i++) {
+    const p = yMin + (i / 4) * (yMax - yMin);
+    const y = Y(p);
+    ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
+    ctx.fillText(fmt.price(p), 6, y + 3);
+  }
+  // x labels (start / mid / end)
+  ctx.textAlign = 'center';
+  [xMin, (xMin + xMax) / 2, xMax].forEach((t) => ctx.fillText(fmt.time(t), X(t), H - 8));
+  ctx.textAlign = 'start';
+
+  // price line
+  ctx.beginPath(); ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1.6;
+  series.forEach((p, i) => { const x = X(p.t), y = Y(p.price); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
+  ctx.stroke();
+  // soft fill under line
+  ctx.lineTo(X(series[series.length - 1].t), H - pad.b);
+  ctx.lineTo(X(series[0].t), H - pad.b);
+  ctx.closePath();
+  ctx.fillStyle = 'rgba(47,143,255,0.08)'; ctx.fill();
+
+  // markers
+  const maxVal = Math.max(1, ...d.prints.map((p) => p.value));
+  plot = { pts: [], X, Y };
+  for (const p of d.prints) {
+    const r = 3 + Math.sqrt(p.value / maxVal) * 9;
+    const x = X(p.t), y = Y(p.price);
+    const c = p.side === 'buy' ? COLORS.buy : p.side === 'sell' ? COLORS.sell : COLORS.neutral;
+    ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
+    ctx.fillStyle = c + '88'; ctx.fill();
+    ctx.lineWidth = 1.2; ctx.strokeStyle = c; ctx.stroke();
+    plot.pts.push({ x, y, r: Math.max(r, 6), p });
+  }
+}
+
+function onHover(e) {
+  if (!plot) return;
+  const rect = canvas.getBoundingClientRect();
+  const mx = e.clientX - rect.left, my = e.clientY - rect.top;
+  let hit = null, best = 1e9;
+  for (const pt of plot.pts) {
+    const d2 = (pt.x - mx) ** 2 + (pt.y - my) ** 2;
+    if (d2 < pt.r * pt.r && d2 < best) { best = d2; hit = pt; }
+  }
+  const tip = modal.querySelector('#ct-tip');
+  if (!hit) { tip.hidden = true; return; }
+  const p = hit.p;
+  tip.hidden = false;
+  tip.innerHTML = `<b>${current.symbol}</b> ${fmt.time(p.t)}<br>${fmt.int(p.size)} sh @ ${fmt.price(p.price)}<br>${fmt.money(p.value)} · ${p.bidAsk}`;
+  tip.style.left = Math.min(hit.x + 12, canvas.clientWidth - 150) + 'px';
+  tip.style.top = Math.max(hit.y - 10, 4) + 'px';
+}
+
+// ---- Global ticker-click wiring ----
+const SYMBOL_RE = /[A-Z][A-Z.]{0,5}/;
+export function enableTickerClicks() {
+  document.addEventListener('click', (e) => {
+    const el = e.target.closest('.ticker, .sym, .ai-ticker, .ct-sym');
+    if (!el || el.classList.contains('ct-sym')) return;
+    const m = (el.textContent || '').match(SYMBOL_RE);
+    if (m) openChart(m[0]);
+  });
+}

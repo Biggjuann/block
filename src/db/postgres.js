@@ -108,6 +108,26 @@ export async function getStats({ since = startOfTodayMs() } = {}) {
   return { trades: Number(row.trades), value: Number(row.value), volume: Number(row.volume) };
 }
 
+export async function getPressure({ since = startOfTodayMs(), limit = 14 } = {}) {
+  const r = await pool.query(
+    `SELECT ticker,
+            SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END) AS buy_value,
+            SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END) AS sell_value,
+            COUNT(*)::int AS trades
+       FROM block_trades WHERE traded_at >= $1
+      GROUP BY ticker
+      ORDER BY ABS(SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END)
+                 - SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END)) DESC
+      LIMIT $2`,
+    [since, limit]
+  );
+  return r.rows.map((x) => {
+    const buyValue = Number(x.buy_value);
+    const sellValue = Number(x.sell_value);
+    return { ticker: x.ticker, buyValue, sellValue, trades: Number(x.trades), net: buyValue - sellValue };
+  });
+}
+
 export async function queryHistory(f = {}) {
   const where = [];
   const args = [];

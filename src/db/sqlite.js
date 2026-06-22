@@ -91,6 +91,25 @@ export async function getStats({ since = startOfTodayMs() } = {}) {
     .get(since);
 }
 
+// Net buy/sell pressure per ticker: aggressive buys (Above/At Ask) vs
+// aggressive sells (Below/At Bid), by notional.
+export async function getPressure({ since = startOfTodayMs(), limit = 14 } = {}) {
+  const rows = db
+    .prepare(
+      `SELECT ticker,
+              SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END) AS buyValue,
+              SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END) AS sellValue,
+              COUNT(*) AS trades
+         FROM block_trades WHERE traded_at >= ?
+        GROUP BY ticker
+        ORDER BY ABS(SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END)
+                   - SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END)) DESC
+        LIMIT ?`
+    )
+    .all(since, limit);
+  return rows.map((r) => ({ ...r, net: r.buyValue - r.sellValue }));
+}
+
 // Flexible historical query backing the History page.
 export async function queryHistory(f = {}) {
   const where = [];
