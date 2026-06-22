@@ -111,14 +111,29 @@ function clientAlert(t) {
   return { trade: t, reasons, at: t.tradedAt, source: 'you' };
 }
 
+const alertedKeys = new Set();   // dedup so a trade can't alert twice (you + market)
+let lastToastAt = 0;             // global throttle for intrusive surfaces
+
 function fireAlert(alert) {
+  const t = alert.trade;
+  const key = t.id ?? `${t.ticker}:${t.tradedAt}`;
+  if (alertedKeys.has(key)) return;
+  alertedKeys.add(key);
+  if (alertedKeys.size > 600) alertedKeys.clear();
+
   alertsState.unshift(alert);
   if (alertsState.length > 60) alertsState.pop();
   unseen += 1;
   renderBadge();
   renderAlertsList();
+
+  // The drawer logs every alert, but throttle toast/sound/notification globally
+  // so a burst of qualifying blocks can't flood the screen.
+  const now = Date.now();
+  if (now - lastToastAt < 3500) return;
+  lastToastAt = now;
   showToast(alert);
-  if (settings.notify) notify(`${alert.trade.ticker} block`, alert.reasons.join(' · '));
+  if (settings.notify) notify(`${t.ticker} block`, alert.reasons.join(' · '));
   if (settings.sound) beep();
 }
 

@@ -62,8 +62,8 @@ export const config = {
   fundamentalsRefreshMs: num(process.env.FUNDAMENTALS_REFRESH_MS, 15 * 60 * 1000),
   // Server-side "whale" alert thresholds + optional Discord push.
   alerts: {
-    minNotional: num(process.env.ALERT_MIN_NOTIONAL, 25_000_000),
-    minPctADV: num(process.env.ALERT_MIN_PCT_ADV, 5),
+    minNotional: num(process.env.ALERT_MIN_NOTIONAL, 50_000_000),
+    minPctADV: num(process.env.ALERT_MIN_PCT_ADV, 10),
     discordWebhook: process.env.DISCORD_WEBHOOK_URL || '',
   },
 };

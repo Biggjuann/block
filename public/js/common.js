@@ -67,23 +67,35 @@ export function connectWS(onMessage) {
 // ---- Persisted settings + watchlist (localStorage) ----
 const SETTINGS_KEY = 'bti.settings';
 const WATCH_KEY = 'bti.watchlist';
+const SETTINGS_VERSION = 2; // bump to re-seed alert thresholds for existing users
 
 const DEFAULT_SETTINGS = {
+  v: SETTINGS_VERSION,
   minNotional: 0, // tape filter: minimum $ notional
   watchlistOnly: false,
-  alertMinNotional: 5_000_000,
-  alertMinPctADV: 3,
+  // Alerts should flag the exceptional, not every block — so these default
+  // high. Tune them in the ⚙ Alert rules popover.
+  alertMinNotional: 50_000_000,
+  alertMinPctADV: 10,
   alertWatchlistOnly: false,
   notify: false, // browser notifications
   sound: true,
 };
 
 export function loadSettings() {
+  let stored = {};
   try {
-    return { ...DEFAULT_SETTINGS, ...JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}') };
-  } catch {
-    return { ...DEFAULT_SETTINGS };
+    stored = JSON.parse(localStorage.getItem(SETTINGS_KEY) || '{}');
+  } catch { /* ignore */ }
+  const s = { ...DEFAULT_SETTINGS, ...stored };
+  // Migration: earlier versions shipped noisy low thresholds — re-seed them.
+  if (stored.v !== SETTINGS_VERSION) {
+    s.alertMinNotional = DEFAULT_SETTINGS.alertMinNotional;
+    s.alertMinPctADV = DEFAULT_SETTINGS.alertMinPctADV;
+    s.v = SETTINGS_VERSION;
+    saveSettings(s);
   }
+  return s;
 }
 export function saveSettings(s) {
   localStorage.setItem(SETTINGS_KEY, JSON.stringify(s));
