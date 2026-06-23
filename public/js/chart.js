@@ -46,7 +46,7 @@ function build() {
       </div>
       <div class="ct-top5" id="ct-top5"></div>
       <div class="chart-prints"><table><thead><tr>
-        <th>Time</th><th>Price</th><th class="num">Size</th><th class="num">Value</th><th>Side</th>
+        <th>#</th><th>Time</th><th>Price</th><th class="num">Size</th><th class="num">Value</th><th>Side</th>
       </tr></thead><tbody id="ct-prints"></tbody></table></div>
     </div>`;
   document.body.appendChild(modal);
@@ -121,18 +121,18 @@ function renderTop5(d) {
 }
 
 function renderPrints(d) {
-  const ranked = new Set(d.topPrints.map((p) => p.t + ':' + p.value));
-  const rows = [...d.prints].reverse().slice(0, 500).map((p) => {
-    const top = ranked.has(p.t + ':' + p.value);
-    return `<tr class="${top ? 'ct-row-top' : ''}">
-      <td class="t-time">${top ? '★ ' : ''}${isIntraday() ? fmt.datetime(p.t) : fmt.date(p.t)}</td>
+  // Top 10 trades of the window by notional, largest first.
+  const top = [...d.prints].sort((a, b) => b.value - a.value).slice(0, 10);
+  const rows = top.map((p, i) => `
+    <tr class="${i < 5 ? 'ct-row-top' : ''}">
+      <td class="rank">${i + 1}</td>
+      <td class="t-time">${isIntraday() ? fmt.datetime(p.t) : fmt.date(p.t)}</td>
       <td class="t-price">${fmt.price(p.price)}</td>
       <td class="num t-size">${fmt.int(p.size)}</td>
       <td class="num t-val">${fmt.money(p.value)}</td>
-      <td><span class="${tagClass(p.bidAsk)}">${p.bidAsk}</span></td></tr>`;
-  }).join('');
+      <td><span class="${tagClass(p.bidAsk)}">${p.bidAsk}</span></td></tr>`).join('');
   modal.querySelector('#ct-prints').innerHTML = rows ||
-    '<tr><td colspan="5" class="empty">No prints in this window.</td></tr>';
+    '<tr><td colspan="6" class="empty">No prints in this window.</td></tr>';
 }
 
 // ---- Canvas drawing ----
