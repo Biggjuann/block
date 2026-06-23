@@ -39,6 +39,9 @@ export const fmt = {
       month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: true,
     });
   },
+  date(ms) {
+    return new Date(ms).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  },
 };
 
 export const tagClass = (label) =>

@@ -74,7 +74,7 @@ export async function openChart(symbol) {
 
 function renderHeader(d) {
   modal.querySelector('#ct-last').textContent = fmt.price(d.summary.last);
-  modal.querySelector('#ct-count').textContent = `${d.summary.count} prints today`;
+  modal.querySelector('#ct-count').textContent = `${d.summary.count} block prints · 6mo daily`;
   const { buyValue, sellValue, net } = d.summary;
   const total = buyValue + sellValue || 1;
   const buyPct = (buyValue / total) * 100;
@@ -93,7 +93,7 @@ function renderHeader(d) {
 
 function renderPrints(d) {
   const rows = [...d.prints].reverse().slice(0, 40).map((p) => `
-    <tr><td class="t-time">${fmt.time(p.t)}</td>
+    <tr><td class="t-time">${fmt.datetime(p.t)}</td>
       <td class="t-price">${fmt.price(p.price)}</td>
       <td class="num t-size">${fmt.int(p.size)}</td>
       <td class="num t-val">${fmt.money(p.value)}</td>
@@ -137,9 +137,9 @@ function draw(d) {
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
     ctx.fillText(fmt.price(p), 6, y + 3);
   }
-  // x labels (start / mid / end)
+  // x labels (date ticks across the daily window)
   ctx.textAlign = 'center';
-  [xMin, (xMin + xMax) / 2, xMax].forEach((t) => ctx.fillText(fmt.time(t), X(t), H - 8));
+  [xMin, (xMin + xMax) / 2, xMax].forEach((t) => ctx.fillText(fmt.date(t), X(t), H - 8));
   ctx.textAlign = 'start';
 
   // price line
@@ -179,7 +179,7 @@ function onHover(e) {
   if (!hit) { tip.hidden = true; return; }
   const p = hit.p;
   tip.hidden = false;
-  tip.innerHTML = `<b>${current.symbol}</b> ${fmt.time(p.t)}<br>${fmt.int(p.size)} sh @ ${fmt.price(p.price)}<br>${fmt.money(p.value)} · ${p.bidAsk}`;
+  tip.innerHTML = `<b>${current.symbol}</b> ${fmt.datetime(p.t)}<br>${fmt.int(p.size)} sh @ ${fmt.price(p.price)}<br>${fmt.money(p.value)} · ${p.bidAsk}`;
   tip.style.left = Math.min(hit.x + 12, canvas.clientWidth - 150) + 'px';
   tip.style.top = Math.max(hit.y - 10, 4) + 'px';
 }

@@ -3,11 +3,9 @@ import { getToken } from './token.js';
 import { queryHistory } from './db/index.js';
 import { sideOf } from './sweeps.js';
 
-const startOfTodayMs = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d.getTime();
-};
+// Daily-timeframe lookback for the chart line + print overlay.
+const LOOKBACK_DAYS = 183; // ~6 months
+const LOOKBACK_MS = LOOKBACK_DAYS * 24 * 3600e3;
 
 // Deterministic PRNG so the synthesized intraday line is stable per symbol/day.
 function mulberry32(seed) {
@@ -25,12 +23,12 @@ const hash = (s) => {
   return h >>> 0;
 };
 
-// Fetch a real intraday 1-minute line from Schwab.
+// Fetch a real daily line (~6 months) from Schwab.
 async function schwabSeries(symbol) {
   const token = await getToken();
   const url =
     `${config.schwab.baseUrl}/marketdata/v1/pricehistory?symbol=${encodeURIComponent(symbol)}` +
-    `&periodType=day&period=1&frequencyType=minute&frequency=1&needExtendedHoursData=true`;
+    `&periodType=month&period=6&frequencyType=daily&frequency=1&needExtendedHoursData=false`;
   const res = await fetch(url, { headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' } });
   if (!res.ok) throw new Error(`pricehistory ${res.status}`);
   const data = await res.json();
@@ -38,21 +36,20 @@ async function schwabSeries(symbol) {
   return data.candles.map((c) => ({ t: c.datetime, price: c.close }));
 }
 
-// Build a plausible intraday line around an anchor price (simulator / fallback).
+// Build a plausible daily line around an anchor price (simulator / fallback).
 function synthSeries(symbol, anchor) {
-  const open = Math.max(startOfTodayMs() + 9.5 * 3600e3, Date.now() - 6.5 * 3600e3);
   const end = Date.now();
-  const stepMs = 60_000;
-  const n = Math.max(2, Math.min(420, Math.floor((end - open) / stepMs)));
-  const rnd = mulberry32(hash(symbol + new Date().toDateString()));
+  const stepMs = 24 * 3600e3;
+  const n = 126; // ~6 months of trading days
+  const rnd = mulberry32(hash(symbol + 'daily'));
   // Walk backward from the anchor (latest known price) so the line ends at it.
   const closes = new Array(n);
   let p = anchor;
   for (let i = n - 1; i >= 0; i--) {
     closes[i] = p;
-    p = p * (1 + (rnd() - 0.5) * 0.0025);
+    p = p * (1 + (rnd() - 0.5) * 0.03); // daily-scale volatility
   }
-  return closes.map((price, i) => ({ t: open + i * stepMs, price: Math.round(price * 100) / 100 }));
+  return closes.map((price, i) => ({ t: end - (n - 1 - i) * stepMs, price: Math.round(price * 100) / 100 }));
 }
 
 /**
@@ -62,7 +59,7 @@ function synthSeries(symbol, anchor) {
 export async function getChartData(symbol) {
   const sym = symbol.toUpperCase();
   const { rows: prints } = await queryHistory({
-    ticker: sym, from: startOfTodayMs(), order: 'asc', limit: 1000,
+    ticker: sym, from: Date.now() - LOOKBACK_MS, order: 'asc', limit: 2000,
   });
 
   const markers = prints.map((p) => ({
