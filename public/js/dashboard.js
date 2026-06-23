@@ -17,20 +17,29 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
   tab.classList.add('active');
   activeTab = tab.dataset.tab;
-  renderMain();
+  renderMain(false); // switching tabs resets scroll to top
 });
 
 // ---- Main panel renderers ----
-function renderMain() {
-  if (activeTab === 'top') return renderTop();
-  if (activeTab === 'bigprints') return renderBigPrints();
-  if (activeTab === 'pressure') return renderPressure();
-  if (activeTab === 'premarket') return renderVolume();
-  if (activeTab === 'heatmap') return renderHeatmap();
-  if (activeTab === 'earnings') return renderSoon('Earnings Calendar', '📅',
+const SCROLLERS = '.table-wrap, .pressure-list, .bars, .heatmap';
+
+function renderMain(preserveScroll = true) {
+  // Preserve the scroll position across re-renders (live + 15s refresh) so the
+  // list doesn't jump back to the top while you're reading it.
+  const prev = preserveScroll ? mainPanel.querySelector(SCROLLERS)?.scrollTop || 0 : 0;
+  if (activeTab === 'top') renderTop();
+  else if (activeTab === 'bigprints') renderBigPrints();
+  else if (activeTab === 'pressure') renderPressure();
+  else if (activeTab === 'premarket') renderVolume();
+  else if (activeTab === 'heatmap') renderHeatmap();
+  else if (activeTab === 'earnings') renderSoon('Earnings Calendar', '📅',
     'Upcoming earnings ranked by block-flow interest. Connect a fundamentals feed to populate this view.');
-  if (activeTab === 'exdiv') return renderSoon('Ex-Dividend', '💸',
+  else if (activeTab === 'exdiv') renderSoon('Ex-Dividend', '💸',
     'Stocks going ex-dividend, cross-referenced with block activity. Requires a corporate-actions feed.');
+  if (preserveScroll && prev) {
+    const sc = mainPanel.querySelector(SCROLLERS);
+    if (sc) sc.scrollTop = prev;
+  }
 }
 
 function renderTop() {
