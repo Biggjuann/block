@@ -138,6 +138,24 @@ function renderPrints(d) {
 // ---- Canvas drawing ----
 let plot;
 
+// Keep only each calendar day's N largest prints, so the chart shows the day's
+// big trades over time instead of every print.
+function topPerDay(prints, n = 5) {
+  const byDay = new Map();
+  for (const p of prints) {
+    const d = new Date(p.t); d.setHours(0, 0, 0, 0);
+    const key = d.getTime();
+    if (!byDay.has(key)) byDay.set(key, []);
+    byDay.get(key).push(p);
+  }
+  const out = [];
+  for (const arr of byDay.values()) {
+    arr.sort((a, b) => b.value - a.value);
+    out.push(...arr.slice(0, n));
+  }
+  return out;
+}
+
 function draw(d) {
   const wrap = canvas.parentElement;
   const W = wrap.clientWidth;
@@ -148,12 +166,15 @@ function draw(d) {
   ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
   ctx.clearRect(0, 0, W, H);
 
+  // Only plot each day's top-5 trades as markers.
+  const markers = topPerDay(d.prints, 5);
+
   const pad = { l: 56, r: 14, t: 14, b: 24 };
-  const series = d.series.length ? d.series : d.prints.map((p) => ({ t: p.t, price: p.price }));
+  const series = d.series.length ? d.series : markers.map((p) => ({ t: p.t, price: p.price }));
   if (!series.length) return;
 
-  const xs = series.map((p) => p.t).concat(d.prints.map((p) => p.t));
-  const ys = series.map((p) => p.price).concat(d.prints.map((p) => p.price));
+  const xs = series.map((p) => p.t).concat(markers.map((p) => p.t));
+  const ys = series.map((p) => p.price).concat(markers.map((p) => p.price));
   const xMin = Math.min(...xs), xMax = Math.max(...xs);
   let yMin = Math.min(...ys), yMax = Math.max(...ys);
   const padY = (yMax - yMin) * 0.08 || yMax * 0.01 || 1;
@@ -182,11 +203,11 @@ function draw(d) {
   ctx.closePath();
   ctx.fillStyle = 'rgba(47,143,255,0.08)'; ctx.fill();
 
-  const maxVal = Math.max(1, ...d.prints.map((p) => p.value));
+  const maxVal = Math.max(1, ...markers.map((p) => p.value));
   plot = { pts: [], X, Y };
   // Normal markers first, then ranked ones on top so the big ones stand out.
   const ranked = [];
-  for (const p of d.prints) {
+  for (const p of markers) {
     const r = 3 + Math.sqrt(p.value / maxVal) * 9;
     const x = X(p.t), y = Y(p.price);
     plot.pts.push({ x, y, r: Math.max(r, 6), p });
