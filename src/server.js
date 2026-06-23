@@ -126,7 +126,7 @@ app.get('/api/history', handle(async (req, res) => {
     minSize: num(q.minSize),
     minNotional: num(q.minNotional),
     bidAsk: q.bidAsk ? String(q.bidAsk) : undefined,
-    sort: q.sort === 'value' ? 'value' : 'traded_at',
+    sort: q.sort ? String(q.sort) : 'traded_at',
     order: q.order === 'asc' ? 'asc' : 'desc',
     limit: clamp(num(q.limit) || 100, 1, 500),
     offset: Math.max(0, num(q.offset) || 0),

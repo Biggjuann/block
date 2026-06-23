@@ -134,6 +134,11 @@ export async function purgeBlockTrades() {
   return Number(c.rows[0].n);
 }
 
+const SORT_COLS = {
+  traded_at: 'traded_at', ticker: 'ticker', price: 'price',
+  size: 'size', value: 'value', pct_adv: 'pct_adv', bid_ask: 'bid_ask',
+};
+
 export async function queryHistory(f = {}) {
   const where = [];
   const args = [];
@@ -146,7 +151,7 @@ export async function queryHistory(f = {}) {
   if (f.bidAsk) add('bid_ask = ?', f.bidAsk);
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const order = f.order === 'asc' ? 'ASC' : 'DESC';
-  const sort = f.sort === 'value' ? 'value' : 'traded_at';
+  const sort = SORT_COLS[f.sort] || 'traded_at';
   const limit = f.limit ?? 100;
   const offset = f.offset ?? 0;
 

@@ -57,11 +57,12 @@
         <span class="hint" id="result-info">—</span>
       </div>
       <div class="table-wrap" style="max-height:calc(100vh - 220px)">
-        <table>
-          <thead><tr>
-            <th>Time</th><th>Ticker</th><th class="num">Price</th>
-            <th class="num">Size</th><th class="num">Value</th>
-            <th class="num">%ADV</th><th>Bid&nbsp;Ask</th>
+        <table class="hist-table">
+          <thead><tr id="hist-head">
+            <th data-field="traded_at">Time</th><th data-field="ticker">Ticker</th>
+            <th class="num" data-field="price">Price</th><th class="num" data-field="size">Size</th>
+            <th class="num" data-field="value">Value</th><th class="num" data-field="pct_adv">%ADV</th>
+            <th data-field="bid_ask">Bid&nbsp;Ask</th>
           </tr></thead>
           <tbody id="hist-body"></tbody>
         </table>

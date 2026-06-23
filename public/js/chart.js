@@ -45,7 +45,7 @@ function build() {
         <span class="ct-hint">marker size = $ notional</span>
       </div>
       <div class="ct-top5" id="ct-top5"></div>
-      <div class="chart-prints"><table><thead><tr>
+      <div class="chart-prints"><table class="sortable" data-sort-key="chart-top" data-rank-col="0"><thead><tr>
         <th>#</th><th>Time</th><th>Price</th><th class="num">Size</th><th class="num">Value</th><th>Side</th>
       </tr></thead><tbody id="ct-prints"></tbody></table></div>
     </div>`;

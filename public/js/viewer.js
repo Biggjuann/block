@@ -4,6 +4,7 @@ import {
   requestNotifyPermission, notify, beep,
 } from './common.js';
 import { enableTickerClicks } from './chart.js';
+import { initSortable } from './sortable.js';
 
 const MAX_ROWS = 60;
 const BUFFER_CAP = 800;
@@ -36,7 +37,7 @@ function buildColumns() {
         <div class="meta">${rangeLabel(c)} shares</div>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="sortable" data-sort-key="tape-${c.min}">
           <thead><tr>
             <th>Time</th><th>Ticker</th><th class="num">Price</th>
             <th class="num">Size</th><th class="num">Value</th><th>Bid&nbsp;Ask</th>
@@ -331,6 +332,7 @@ async function init() {
   wireToolbar();
   renderAlertsList();
   enableTickerClicks();
+  initSortable();
 
   await resync();
 

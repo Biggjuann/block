@@ -1,5 +1,6 @@
 import { api, connectWS, fmt, setStatus, tagClass, pctAdvClass, setMarketBadge } from './common.js';
 import { enableTickerClicks } from './chart.js';
+import { initSortable } from './sortable.js';
 
 let activeTab = 'top';
 let topData = [];
@@ -74,7 +75,7 @@ function renderTop() {
       <div class="top-layout">
         <div class="bars">${bars || emptyMsg()}</div>
         <div class="table-wrap">
-          <table>
+          <table class="sortable" data-sort-key="top">
             <thead><tr><th>Ticker</th><th class="num">Price</th><th class="num">Trades</th><th class="num">Volume</th><th class="num">Value</th></tr></thead>
             <tbody>${rows || ''}</tbody>
           </table>
@@ -104,7 +105,7 @@ function renderBigPrints() {
       <div class="panel-head"><h2>Biggest Trades</h2>
         <span class="hint">largest individual prints · today · by notional</span></div>
       <div class="table-wrap" style="max-height:calc(100vh - 180px)">
-        <table>
+        <table class="sortable" data-sort-key="bigprints" data-rank-col="0">
           <thead><tr><th>#</th><th>Time</th><th>Ticker</th><th class="num">Price</th>
             <th class="num">Size</th><th class="num">Value</th><th class="num">%ADV</th><th>Bid&nbsp;Ask</th></tr></thead>
           <tbody>${rows || ''}</tbody>
@@ -263,6 +264,7 @@ async function init() {
 
   renderMain();
   enableTickerClicks();
+  initSortable();
   refreshStats();
   setInterval(refreshStats, 5000);
   setMarketBadge();

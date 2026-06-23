@@ -456,6 +456,14 @@ tr.watched:hover { background: rgba(242,177,78,0.1); }
 .pr-net.neg { color: var(--red); }
 td.rank { color: var(--text-faint); font-family: var(--mono); font-weight: 700; width: 28px; }
 
+/* ---- Sortable table headers ---- */
+table.sortable thead th, .hist-table thead th {
+  cursor: pointer; user-select: none; transition: color .12s ease;
+}
+table.sortable thead th:hover, .hist-table thead th:hover { color: var(--text); }
+th.sort-asc::after { content: ' ▲'; color: var(--accent); font-size: 8px; vertical-align: middle; }
+th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; vertical-align: middle; }
+
 /* ---- Chart modal ---- */
 .chart-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }
 .chart-backdrop { position: absolute; inset: 0; background: rgba(3,6,13,0.72); backdrop-filter: blur(4px); }

@@ -117,6 +117,12 @@ export async function purgeBlockTrades() {
   return n;
 }
 
+// Whitelist of sortable columns (maps API field -> safe SQL column).
+const SORT_COLS = {
+  traded_at: 'traded_at', ticker: 'ticker', price: 'price',
+  size: 'size', value: 'value', pct_adv: 'pct_adv', bid_ask: 'bid_ask',
+};
+
 // Flexible historical query backing the History page.
 export async function queryHistory(f = {}) {
   const where = [];
@@ -129,7 +135,7 @@ export async function queryHistory(f = {}) {
   if (f.bidAsk) { where.push('bid_ask = ?'); args.push(f.bidAsk); }
   const clause = where.length ? `WHERE ${where.join(' AND ')}` : '';
   const order = f.order === 'asc' ? 'ASC' : 'DESC';
-  const sort = f.sort === 'value' ? 'value' : 'traded_at';
+  const sort = SORT_COLS[f.sort] || 'traded_at';
   const limit = f.limit ?? 100;
   const offset = f.offset ?? 0;
 
