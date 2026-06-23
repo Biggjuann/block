@@ -1,15 +1,19 @@
 import { api, fmt, tagClass } from './common.js';
 
-// Click-through intraday chart: price line with block prints overlaid as
-// markers (green = buy-side, red = sell-side, violet = between), plus a net
-// buy/sell pressure header. Imported by every page; clicking any ticker opens it.
+// Click-through chart: a price line with block prints overlaid as markers
+// (green = buy, red = sell, violet = between; size = $ notional). The biggest
+// prints are ranked and highlighted both on the chart and in a Top-5 list, and
+// a timeframe toggle lets you see where the big ones hit over time.
 
 const COLORS = {
   buy: '#2bd4a0', sell: '#ff5d6c', neutral: '#9b7bff',
-  line: '#2f8fff', grid: 'rgba(80,110,160,0.18)', text: '#7e92b4',
+  line: '#2f8fff', grid: 'rgba(80,110,160,0.18)', text: '#7e92b4', top: '#f2b14e',
 };
+const TIMEFRAMES = ['1D', '5D', '1M', '6M'];
 
 let modal, canvas, ctx, current;
+let curSym = '';
+let curTf = '1D';
 
 function build() {
   modal = document.createElement('div');
@@ -24,6 +28,9 @@ function build() {
           <span class="ct-last" id="ct-last"></span>
           <span class="ct-count" id="ct-count"></span>
         </div>
+        <div class="seg ct-tf" id="ct-tf">
+          ${TIMEFRAMES.map((t) => `<button class="seg-btn${t === '1D' ? ' active' : ''}" data-tf="${t}">${t}</button>`).join('')}
+        </div>
         <button class="ghost-btn sm" data-close>✕</button>
       </div>
       <div class="pressure-bar" id="ct-pressure"></div>
@@ -34,8 +41,10 @@ function build() {
         <span><i style="background:${COLORS.buy}"></i>Buy (lift offer)</span>
         <span><i style="background:${COLORS.sell}"></i>Sell (hit bid)</span>
         <span><i style="background:${COLORS.neutral}"></i>Between</span>
+        <span><i style="background:${COLORS.top}"></i>Top 5</span>
         <span class="ct-hint">marker size = $ notional</span>
       </div>
+      <div class="ct-top5" id="ct-top5"></div>
       <div class="chart-prints"><table><thead><tr>
         <th>Time</th><th>Price</th><th class="num">Size</th><th class="num">Value</th><th>Side</th>
       </tr></thead><tbody id="ct-prints"></tbody></table></div>
@@ -44,6 +53,10 @@ function build() {
   canvas = modal.querySelector('#ct-canvas');
   ctx = canvas.getContext('2d');
   modal.addEventListener('click', (e) => { if (e.target.dataset.close !== undefined) close(); });
+  modal.querySelector('#ct-tf').addEventListener('click', (e) => {
+    const b = e.target.closest('[data-tf]');
+    if (b) openChart(curSym, b.dataset.tf);
+  });
   document.addEventListener('keydown', (e) => { if (e.key === 'Escape' && !modal.hidden) close(); });
   canvas.addEventListener('mousemove', onHover);
   canvas.addEventListener('mouseleave', () => { modal.querySelector('#ct-tip').hidden = true; });
@@ -52,19 +65,19 @@ function build() {
 
 function close() { modal.hidden = true; current = null; }
 
-export async function openChart(symbol) {
+export async function openChart(symbol, tf = curTf) {
   if (!modal) build();
-  const sym = String(symbol).toUpperCase();
+  curSym = String(symbol).toUpperCase();
+  curTf = TIMEFRAMES.includes(tf) ? tf : '1D';
   modal.hidden = false;
-  modal.querySelector('#ct-sym').textContent = sym;
-  modal.querySelector('#ct-last').textContent = '';
+  modal.querySelector('#ct-sym').textContent = curSym;
   modal.querySelector('#ct-count').textContent = 'loading…';
-  modal.querySelector('#ct-prints').innerHTML = '';
-  modal.querySelector('#ct-pressure').innerHTML = '';
+  modal.querySelectorAll('#ct-tf .seg-btn').forEach((b) => b.classList.toggle('active', b.dataset.tf === curTf));
   try {
-    const data = await api('/api/chart?symbol=' + encodeURIComponent(sym));
+    const data = await api(`/api/chart?symbol=${encodeURIComponent(curSym)}&tf=${curTf}`);
     current = data;
     renderHeader(data);
+    renderTop5(data);
     renderPrints(data);
     draw(data);
   } catch {
@@ -72,9 +85,12 @@ export async function openChart(symbol) {
   }
 }
 
+const isIntraday = () => curTf === '1D' || curTf === '5D';
+const xLabel = (t) => (curTf === '1D' ? fmt.time(t) : isIntraday() ? fmt.datetime(t) : fmt.date(t));
+
 function renderHeader(d) {
   modal.querySelector('#ct-last').textContent = fmt.price(d.summary.last);
-  modal.querySelector('#ct-count').textContent = `${d.summary.count} block prints · 6mo daily`;
+  modal.querySelector('#ct-count').textContent = `${d.summary.count} block prints · ${d.timeframe}`;
   const { buyValue, sellValue, net } = d.summary;
   const total = buyValue + sellValue || 1;
   const buyPct = (buyValue / total) * 100;
@@ -91,18 +107,36 @@ function renderHeader(d) {
     </div>`;
 }
 
+function renderTop5(d) {
+  const el = modal.querySelector('#ct-top5');
+  if (!d.topPrints?.length) { el.innerHTML = ''; return; }
+  el.innerHTML = `<div class="ct-top5-label">Top ${d.topPrints.length} by $</div>` +
+    d.topPrints.map((p) => `
+      <div class="ct-top5-chip ${p.side || 'neutral'}">
+        <span class="ct-rank">#${p.rank}</span>
+        <b>${fmt.money(p.value)}</b>
+        <span>${fmt.int(p.size)} sh</span>
+        <span class="ct-top5-time">${xLabel(p.t)}</span>
+      </div>`).join('');
+}
+
 function renderPrints(d) {
-  const rows = [...d.prints].reverse().slice(0, 40).map((p) => `
-    <tr><td class="t-time">${fmt.datetime(p.t)}</td>
+  const ranked = new Set(d.topPrints.map((p) => p.t + ':' + p.value));
+  const rows = [...d.prints].reverse().slice(0, 500).map((p) => {
+    const top = ranked.has(p.t + ':' + p.value);
+    return `<tr class="${top ? 'ct-row-top' : ''}">
+      <td class="t-time">${top ? '★ ' : ''}${isIntraday() ? fmt.datetime(p.t) : fmt.date(p.t)}</td>
       <td class="t-price">${fmt.price(p.price)}</td>
       <td class="num t-size">${fmt.int(p.size)}</td>
       <td class="num t-val">${fmt.money(p.value)}</td>
-      <td><span class="${tagClass(p.bidAsk)}">${p.bidAsk}</span></td></tr>`).join('');
-  modal.querySelector('#ct-prints').innerHTML = rows || '<tr><td colspan="5" class="empty">No prints today.</td></tr>';
+      <td><span class="${tagClass(p.bidAsk)}">${p.bidAsk}</span></td></tr>`;
+  }).join('');
+  modal.querySelector('#ct-prints').innerHTML = rows ||
+    '<tr><td colspan="5" class="empty">No prints in this window.</td></tr>';
 }
 
 // ---- Canvas drawing ----
-let plot; // cached geometry for hover hit-testing
+let plot;
 
 function draw(d) {
   const wrap = canvas.parentElement;
@@ -128,7 +162,6 @@ function draw(d) {
   const X = (t) => pad.l + ((t - xMin) / (xMax - xMin || 1)) * (W - pad.l - pad.r);
   const Y = (p) => pad.t + (1 - (p - yMin) / (yMax - yMin || 1)) * (H - pad.t - pad.b);
 
-  // grid + y labels
   ctx.font = '10px ui-monospace, monospace';
   ctx.fillStyle = COLORS.text; ctx.strokeStyle = COLORS.grid; ctx.lineWidth = 1;
   for (let i = 0; i <= 4; i++) {
@@ -137,32 +170,42 @@ function draw(d) {
     ctx.beginPath(); ctx.moveTo(pad.l, y); ctx.lineTo(W - pad.r, y); ctx.stroke();
     ctx.fillText(fmt.price(p), 6, y + 3);
   }
-  // x labels (date ticks across the daily window)
   ctx.textAlign = 'center';
-  [xMin, (xMin + xMax) / 2, xMax].forEach((t) => ctx.fillText(fmt.date(t), X(t), H - 8));
+  [xMin, (xMin + xMax) / 2, xMax].forEach((t) => ctx.fillText(xLabel(t), X(t), H - 8));
   ctx.textAlign = 'start';
 
-  // price line
   ctx.beginPath(); ctx.strokeStyle = COLORS.line; ctx.lineWidth = 1.6;
   series.forEach((p, i) => { const x = X(p.t), y = Y(p.price); i ? ctx.lineTo(x, y) : ctx.moveTo(x, y); });
   ctx.stroke();
-  // soft fill under line
   ctx.lineTo(X(series[series.length - 1].t), H - pad.b);
   ctx.lineTo(X(series[0].t), H - pad.b);
   ctx.closePath();
   ctx.fillStyle = 'rgba(47,143,255,0.08)'; ctx.fill();
 
-  // markers
   const maxVal = Math.max(1, ...d.prints.map((p) => p.value));
   plot = { pts: [], X, Y };
+  // Normal markers first, then ranked ones on top so the big ones stand out.
+  const ranked = [];
   for (const p of d.prints) {
     const r = 3 + Math.sqrt(p.value / maxVal) * 9;
     const x = X(p.t), y = Y(p.price);
+    plot.pts.push({ x, y, r: Math.max(r, 6), p });
+    if (p.rank) { ranked.push({ x, y, r, p }); continue; }
     const c = p.side === 'buy' ? COLORS.buy : p.side === 'sell' ? COLORS.sell : COLORS.neutral;
     ctx.beginPath(); ctx.arc(x, y, r, 0, Math.PI * 2);
     ctx.fillStyle = c + '88'; ctx.fill();
     ctx.lineWidth = 1.2; ctx.strokeStyle = c; ctx.stroke();
-    plot.pts.push({ x, y, r: Math.max(r, 6), p });
+  }
+  for (const { x, y, r, p } of ranked) {
+    const c = p.side === 'buy' ? COLORS.buy : p.side === 'sell' ? COLORS.sell : COLORS.neutral;
+    const rr = Math.max(r, 7);
+    ctx.beginPath(); ctx.arc(x, y, rr, 0, Math.PI * 2);
+    ctx.fillStyle = c + 'cc'; ctx.fill();
+    ctx.lineWidth = 2.5; ctx.strokeStyle = COLORS.top; ctx.stroke();
+    ctx.fillStyle = COLORS.top; ctx.font = 'bold 10px ui-monospace, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('#' + p.rank, x, y - rr - 3);
+    ctx.textAlign = 'start';
   }
 }
 
@@ -179,7 +222,8 @@ function onHover(e) {
   if (!hit) { tip.hidden = true; return; }
   const p = hit.p;
   tip.hidden = false;
-  tip.innerHTML = `<b>${current.symbol}</b> ${fmt.datetime(p.t)}<br>${fmt.int(p.size)} sh @ ${fmt.price(p.price)}<br>${fmt.money(p.value)} · ${p.bidAsk}`;
+  tip.innerHTML = `<b>${current.symbol}${p.rank ? ` · #${p.rank}` : ''}</b> ${fmt.datetime(p.t)}<br>` +
+    `${fmt.int(p.size)} sh @ ${fmt.price(p.price)}<br>${fmt.money(p.value)} · ${p.bidAsk}`;
   tip.style.left = Math.min(hit.x + 12, canvas.clientWidth - 150) + 'px';
   tip.style.top = Math.max(hit.y - 10, 4) + 'px';
 }
@@ -191,6 +235,6 @@ export function enableTickerClicks() {
     const el = e.target.closest('.ticker, .sym, .ai-ticker, .ct-sym');
     if (!el || el.classList.contains('ct-sym')) return;
     const m = (el.textContent || '').match(SYMBOL_RE);
-    if (m) openChart(m[0]);
+    if (m) openChart(m[0], '1D');
   });
 }

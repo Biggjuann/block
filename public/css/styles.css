@@ -494,3 +494,21 @@ td.rank { color: var(--text-faint); font-family: var(--mono); font-weight: 700; 
 .chart-legend .ct-hint { color: var(--text-faint); margin-left: auto; }
 .chart-prints { max-height: 240px; overflow-y: auto; border-top: 1px solid var(--border); }
 .chart-prints table { width: 100%; }
+
+.ct-tf { height: 30px; }
+.ct-tf .seg-btn { padding: 5px 11px; }
+
+.ct-top5 { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 4px 2px 10px; }
+.ct-top5-label { color: var(--text-faint); font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: .5px; margin-right: 2px; }
+.ct-top5-chip {
+  display: inline-flex; align-items: center; gap: 7px;
+  background: rgba(242,177,78,0.08); border: 1px solid rgba(242,177,78,0.3);
+  border-radius: 8px; padding: 4px 10px; font-family: var(--mono); font-size: 11.5px; color: var(--text-dim);
+}
+.ct-top5-chip b { color: #fff; }
+.ct-top5-chip.buy { border-color: rgba(43,212,160,0.35); }
+.ct-top5-chip.sell { border-color: rgba(255,93,108,0.35); }
+.ct-rank { color: var(--amber); font-weight: 800; }
+.ct-top5-time { color: var(--text-faint); }
+tr.ct-row-top { background: rgba(242,177,78,0.08); }
+tr.ct-row-top .t-time { color: var(--amber); }

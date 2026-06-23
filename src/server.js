@@ -100,7 +100,7 @@ app.get('/api/pressure', handle(async (req, res) => {
 app.get('/api/chart', handle(async (req, res) => {
   const symbol = String(req.query.symbol || '').trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
-  res.json(await getChartData(symbol));
+  res.json(await getChartData(symbol, String(req.query.tf || '1D')));
 }));
 
 // Destructive: wipe all stored block trades. Disabled unless ADMIN_KEY is set,
