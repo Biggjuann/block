@@ -83,6 +83,15 @@ app.get('/api/prints', handle(async (req, res) => {
 
 app.get('/api/stats', handle(async (_req, res) => res.json(await getStats())));
 
+const startOfTodayMs = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+// Largest individual block prints today, ranked by notional value (not summed).
+app.get('/api/top-prints', handle(async (req, res) => {
+  const limit = clamp(Number(req.query.limit) || 25, 1, 100);
+  const { rows } = await queryHistory({ from: startOfTodayMs(), sort: 'value', order: 'desc', limit });
+  res.json(rows);
+}));
+
 app.get('/api/pressure', handle(async (req, res) => {
   const limit = clamp(Number(req.query.limit) || 14, 1, 50);
   res.json(await getPressure({ limit }));

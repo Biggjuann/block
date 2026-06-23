@@ -1,9 +1,10 @@
-import { api, connectWS, fmt, setStatus, tagClass, setMarketBadge } from './common.js';
+import { api, connectWS, fmt, setStatus, tagClass, pctAdvClass, setMarketBadge } from './common.js';
 import { enableTickerClicks } from './chart.js';
 
 let activeTab = 'top';
 let topData = [];
 let pressureData = [];
+let bigPrints = [];
 const PRINT_MIN = 400000;
 const printsBody = document.getElementById('prints-body');
 const mainPanel = document.getElementById('main-panel');
@@ -22,6 +23,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
 // ---- Main panel renderers ----
 function renderMain() {
   if (activeTab === 'top') return renderTop();
+  if (activeTab === 'bigprints') return renderBigPrints();
   if (activeTab === 'pressure') return renderPressure();
   if (activeTab === 'premarket') return renderVolume();
   if (activeTab === 'heatmap') return renderHeatmap();
@@ -69,6 +71,37 @@ function renderTop() {
           </table>
         </div>
       </div>
+    </section>`;
+}
+
+function renderBigPrints() {
+  const rows = bigPrints
+    .map((t, i) => {
+      const adv = t.pctADV != null ? `<span class="adv ${pctAdvClass(t.pctADV)}">${t.pctADV}%</span>` : '';
+      return `<tr>
+        <td class="rank">${i + 1}</td>
+        <td class="t-time">${fmt.time(t.tradedAt)}</td>
+        <td class="ticker">${t.ticker}</td>
+        <td class="num t-price">${fmt.price(t.price)}</td>
+        <td class="num t-size">${fmt.int(t.size)}</td>
+        <td class="num t-val">${fmt.money(t.value)}</td>
+        <td class="num">${adv}</td>
+        <td><span class="${tagClass(t.bidAsk)}">${t.bidAsk}</span></td>
+      </tr>`;
+    })
+    .join('');
+  mainPanel.innerHTML = `
+    <section class="panel">
+      <div class="panel-head"><h2>Biggest Trades</h2>
+        <span class="hint">largest individual prints · today · by notional</span></div>
+      <div class="table-wrap" style="max-height:calc(100vh - 180px)">
+        <table>
+          <thead><tr><th>#</th><th>Time</th><th>Ticker</th><th class="num">Price</th>
+            <th class="num">Size</th><th class="num">Value</th><th class="num">%ADV</th><th>Bid&nbsp;Ask</th></tr></thead>
+          <tbody>${rows || ''}</tbody>
+        </table>
+      </div>
+      ${bigPrints.length ? '' : emptyMsg()}
     </section>`;
 }
 
@@ -166,6 +199,13 @@ function addPrint(t, animate = true) {
   document.getElementById('prints-count').textContent = printRows;
 }
 
+// Keep the "Biggest Trades" list live: insert the print if it ranks today.
+function foldBigPrint(t) {
+  bigPrints.push(t);
+  bigPrints.sort((a, b) => b.value - a.value);
+  bigPrints = bigPrints.slice(0, 30);
+}
+
 // Fold a live trade into the aggregated top-trades dataset.
 function foldTrade(t) {
   let row = topData.find((d) => d.ticker === t.ticker);
@@ -202,10 +242,10 @@ async function init() {
   } catch { /* ignore */ }
 
   try {
-    [topData, pressureData] = await Promise.all([
-      api('/api/top?limit=18'), api('/api/pressure?limit=16'),
+    [topData, pressureData, bigPrints] = await Promise.all([
+      api('/api/top?limit=18'), api('/api/pressure?limit=16'), api('/api/top-prints?limit=30'),
     ]);
-  } catch { topData = []; pressureData = []; }
+  } catch { topData = []; pressureData = []; bigPrints = []; }
 
   try {
     const prints = await api('/api/prints?limit=40');
@@ -220,8 +260,8 @@ async function init() {
   setInterval(setMarketBadge, 30000);
   setInterval(async () => {
     try {
-      [topData, pressureData] = await Promise.all([
-        api('/api/top?limit=18'), api('/api/pressure?limit=16'),
+      [topData, pressureData, bigPrints] = await Promise.all([
+        api('/api/top?limit=18'), api('/api/pressure?limit=16'), api('/api/top-prints?limit=30'),
       ]);
       renderMain();
     } catch { /* ignore */ }
@@ -230,6 +270,7 @@ async function init() {
   connectWS((msg) => {
     if (msg.type === 'trade') {
       foldTrade(msg.trade);
+      foldBigPrint(msg.trade);
       addPrint(msg.trade);
       maybeRender();
     } else if (msg.type === 'status') {

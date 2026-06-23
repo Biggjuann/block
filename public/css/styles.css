@@ -454,6 +454,7 @@ tr.watched:hover { background: rgba(242,177,78,0.1); }
 .pr-net { font-family: var(--mono); font-weight: 800; font-size: 12px; text-align: right; }
 .pr-net.pos { color: var(--green); }
 .pr-net.neg { color: var(--red); }
+td.rank { color: var(--text-faint); font-family: var(--mono); font-weight: 700; width: 28px; }
 
 /* ---- Chart modal ---- */
 .chart-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }

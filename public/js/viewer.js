@@ -301,6 +301,16 @@ function onTrade(t) {
   if (a) fireAlert(a);
 }
 
+// Rebuild the tape buffer from the server's continuously-recorded history.
+async function resync() {
+  try {
+    const recent = await api('/api/recent?limit=400');
+    buffer.length = 0;
+    recent.reverse().forEach((t) => buffer.unshift(t));
+    renderAll();
+  } catch { /* ignore */ }
+}
+
 async function refreshStats() {
   try {
     const s = await api('/api/stats');
@@ -322,12 +332,14 @@ async function init() {
   renderAlertsList();
   enableTickerClicks();
 
-  try {
-    const recent = await api('/api/recent?limit=400');
-    recent.reverse().forEach((t) => buffer.unshift(t));
-    buffer.splice(BUFFER_CAP); // cap
-    renderAll();
-  } catch { /* ignore */ }
+  await resync();
+
+  // Re-sync from the server-side record whenever the tab regains focus, so any
+  // gap from background throttling is filled instantly. (Capture itself runs
+  // continuously on the server regardless of whether this page is open.)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { resync(); refreshStats(); }
+  });
 
   refreshStats();
   setInterval(refreshStats, 5000);
