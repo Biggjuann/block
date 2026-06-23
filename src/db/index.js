@@ -15,3 +15,4 @@ export const getRecentBlockTrades = impl.getRecentBlockTrades;
 export const getStats = impl.getStats;
 export const getPressure = impl.getPressure;
 export const queryHistory = impl.queryHistory;
+export const purgeBlockTrades = impl.purgeBlockTrades;

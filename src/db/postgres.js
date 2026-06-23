@@ -128,6 +128,12 @@ export async function getPressure({ since = startOfTodayMs(), limit = 14 } = {})
   });
 }
 
+export async function purgeBlockTrades() {
+  const c = await pool.query('SELECT COUNT(*)::int AS n FROM block_trades');
+  await pool.query('TRUNCATE block_trades RESTART IDENTITY');
+  return Number(c.rows[0].n);
+}
+
 export async function queryHistory(f = {}) {
   const where = [];
   const args = [];

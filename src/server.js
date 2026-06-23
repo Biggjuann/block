@@ -18,6 +18,7 @@ import {
   getStats,
   getTopTrades,
   initDb,
+  purgeBlockTrades,
   queryHistory,
 } from './db/index.js';
 
@@ -91,6 +92,18 @@ app.get('/api/chart', handle(async (req, res) => {
   const symbol = String(req.query.symbol || '').trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   res.json(await getChartData(symbol));
+}));
+
+// Destructive: wipe all stored block trades. Disabled unless ADMIN_KEY is set,
+// and requires that key via the x-admin-key header or ?key= query param.
+app.post('/api/admin/purge', handle(async (req, res) => {
+  const key = process.env.ADMIN_KEY;
+  if (!key) return res.status(403).json({ error: 'purge disabled (set ADMIN_KEY)' });
+  const provided = req.get('x-admin-key') || req.query.key;
+  if (provided !== key) return res.status(401).json({ error: 'invalid admin key' });
+  const purged = await purgeBlockTrades();
+  console.log(`[admin] purged ${purged} block trades`);
+  res.json({ purged });
 }));
 
 // Historical query backing the History page.

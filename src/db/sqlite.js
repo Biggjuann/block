@@ -110,6 +110,13 @@ export async function getPressure({ since = startOfTodayMs(), limit = 14 } = {})
   return rows.map((r) => ({ ...r, net: r.buyValue - r.sellValue }));
 }
 
+// Delete all stored block trades. Returns the number of rows removed.
+export async function purgeBlockTrades() {
+  const n = db.prepare('SELECT COUNT(*) AS n FROM block_trades').get().n;
+  db.prepare('DELETE FROM block_trades').run();
+  return n;
+}
+
 // Flexible historical query backing the History page.
 export async function queryHistory(f = {}) {
   const where = [];
