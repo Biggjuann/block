@@ -56,6 +56,10 @@ export const config = {
   // Keep the simulator generating tape 24/7 (e.g. for demos). Off by default
   // so simulated tape pauses when the market is closed, matching reality.
   simulateAlways: bool(process.env.SIMULATE_ALWAYS, false),
+  // When streaming from Schwab and the stream errors, optionally fall back to
+  // the simulator to keep the UI alive. OFF by default so real deployments
+  // never persist synthetic prints into the database during a hiccup.
+  simFallback: bool(process.env.SIM_FALLBACK, false),
   thresholds,
   columns,
   // How often to refresh Schwab fundamentals (ADV) in ms.

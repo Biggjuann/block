@@ -55,24 +55,28 @@ export function startIngest({ broadcast, onStatus = () => {} }) {
   }
 
   onStatus('connecting', 'schwab');
+  let sim = null; // active fallback simulator, if any
   const stopStream = startSchwabStream({
     symbols: config.schwab.symbols,
     onTrade: handle,
     onStatus: (state, detail) => {
       onStatus(state, `schwab: ${detail || ''}`);
-      if (state === 'error') {
-        // Keep the UI alive with simulated tape if Schwab is unreachable.
-        if (!startIngest._sim) {
-          onStatus('live', 'simulator (schwab fallback)');
-          startIngest._sim = startSimulator(handle);
-        }
+      // Optional fallback simulator — only if explicitly enabled. It self-stops
+      // the moment Schwab is live again so synthetic prints never linger
+      // alongside (or get persisted with) real data.
+      if (state === 'error' && config.simFallback && !sim) {
+        onStatus('live', 'simulator (schwab fallback)');
+        sim = startSimulator(handle);
+      } else if (state === 'live' && sim) {
+        sim();
+        sim = null;
       }
     },
   });
 
   return () => {
+    sim?.();
     stopStream?.();
-    startIngest._sim?.();
   };
 }
 
@@ -83,9 +87,9 @@ export function startIngest({ broadcast, onStatus = () => {} }) {
 
 const UNIVERSE = [
   // [ticker, basePrice, sizeScale] — sizeScale skews how large its blocks run
-  ['SPY', 657.76, 1.3], ['QQQ', 586.99, 1.2], ['TSLA', 422.68, 2.0],
-  ['IWM', 240.81, 1.4], ['AAPL', 233.27, 1.6], ['NVDA', 175.64, 2.0],
-  ['MSFT', 512.15, 0.8], ['GLD', 335.9, 1.0], ['HYG', 80.92, 1.2],
+  ['SPY', 744.39, 1.3], ['QQQ', 737.95, 1.2], ['TSLA', 422.68, 2.0],
+  ['IWM', 245.0, 1.4], ['AAPL', 233.27, 1.6], ['NVDA', 175.64, 2.0],
+  ['MSFT', 510.0, 0.8], ['GLD', 380.0, 1.0], ['HYG', 80.92, 1.2],
   ['ORCL', 305.0, 1.0], ['AMZN', 228.1, 0.9], ['PFE', 23.97, 1.6],
   ['NIO', 6.45, 1.8], ['HIVE', 4.05, 1.7], ['BITF', 2.51, 2.2],
   ['SOFI', 27.35, 1.2], ['SNAP', 7.36, 1.4], ['KWEB', 41.09, 1.2],
