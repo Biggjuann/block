@@ -264,6 +264,16 @@ const emptyMsg = () => `<div class="empty">Waiting for block trades…</div>`;
 // ---- Daily News (AI brief) ----
 const dateKey = () => toInputValue(selectedDate);
 
+// Drop any research narration the model emitted before the brief: everything
+// before the first Markdown heading. Belt-and-suspenders for reports stored
+// before the server-side strip existed.
+function stripPreamble(md) {
+  if (!md) return md;
+  const lines = String(md).split('\n');
+  const idx = lines.findIndex((l) => /^#{1,6}\s/.test(l.trim()));
+  return idx > 0 ? lines.slice(idx).join('\n').trim() : String(md).trim();
+}
+
 function renderNews() {
   const key = dateKey();
   const report = newsByDate[key];
@@ -274,9 +284,9 @@ function renderNews() {
       <div class="news-sub">Reading sources and writing the brief — this can take 30–60s.</div></div>`;
   } else if (report && report.content) {
     const when = report.generatedAt ? `generated ${fmt.datetime(report.generatedAt)}` : '';
-    body = `<div class="news-meta"><span>${when}${report.model ? ` · ${report.model}` : ''}</span>
+    body = `<div class="news-meta"><span>${when}</span>
         <button class="ghost-btn sm" data-gen-news>↻ Regenerate</button></div>
-      <article class="md">${mdToHtml(report.content)}</article>`;
+      <article class="md">${mdToHtml(stripPreamble(report.content))}</article>`;
   } else {
     const err = report && report.error ? `<div class="news-err">${report.error}</div>` : '';
     const canGen = cfg.newsEnabled;

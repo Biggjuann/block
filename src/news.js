@@ -117,7 +117,9 @@ ${sigText}` : ''}`;
 
   const system = `You are a senior market-structure and order-flow analyst writing a concise daily brief for active traders. You are given a day's large block-trade flow captured by a monitoring system${sigText ? ', plus real-time news-sentiment signals from the desk\'s own news engine' : ''}, and you have web search to research what actually moved the market that day.
 
-Write in clean Markdown. Be specific and grounded: tie big prints to real catalysts (earnings, guidance, upgrades/downgrades, M&A, regulatory, macro, sector rotation) found via search; when there is no clear catalyst, say so rather than inventing one. Never fabricate news, numbers, or sources. Cite sources as inline Markdown links. Treat the provided sentiment signals as a useful prior, not gospel — corroborate them. Keep it tight and high-signal; a trader should skim it in two minutes.`;
+Write in clean Markdown. Be specific and grounded: tie big prints to real catalysts (earnings, guidance, upgrades/downgrades, M&A, regulatory, macro, sector rotation) found via search; when there is no clear catalyst, say so rather than inventing one. Never fabricate news, numbers, or sources. Cite sources as inline Markdown links. Treat the provided sentiment signals as a useful prior, not gospel — corroborate them. Keep it tight and high-signal; a trader should skim it in two minutes.
+
+Output ONLY the finished brief. Do not narrate your research process or include any preamble, status updates, or "let me search…" commentary. Your reply must begin directly with the first Markdown heading and contain nothing before it.`;
 
   const user = `Here is the block-trade flow for ${date}:
 
@@ -164,9 +166,20 @@ Focus your research on news from on or around ${date}.`;
     }
     break;
   }
-  const content = resp.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+  const raw = resp.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
+  const content = stripPreamble(raw);
   const structured = await extractStructured(client, content);
   return { content: content || '_No analysis was produced._', empty: false, usedSignals: Boolean(sigText), structured };
+}
+
+// The model sometimes narrates its research ("Let me run some searches…") before
+// the brief, despite instructions. Drop everything before the first Markdown
+// heading so only the brief itself is ever stored or shown.
+function stripPreamble(md) {
+  if (!md) return md;
+  const lines = md.split('\n');
+  const idx = lines.findIndex((l) => /^#{1,6}\s/.test(l.trim()));
+  return idx > 0 ? lines.slice(idx).join('\n').trim() : md.trim();
 }
 
 const EXTRACT_SCHEMA = {
