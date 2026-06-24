@@ -10,6 +10,7 @@ import { startFundamentals } from './fundamentals.js';
 import { dispatchDiscord, dispatchDiscordSweep, evaluateAlert } from './alerts.js';
 import { detectSweep } from './sweeps.js';
 import { getChartData } from './chart.js';
+import { getSetups } from './setups.js';
 import { generateDailyNews, newsEnabled, newsSignalsConfigured } from './news.js';
 import {
   dbBackend,
@@ -128,6 +129,17 @@ app.get('/api/chart', handle(async (req, res) => {
   const symbol = String(req.query.symbol || '').trim();
   if (!symbol) return res.status(400).json({ error: 'symbol required' });
   res.json(await getChartData(symbol, String(req.query.tf || '1D')));
+}));
+
+// Unusual-print setups: tickers with abnormally large single prints, classified
+// bullish/bearish by where price sits vs where the big trades occurred. Uses a
+// multi-day lookback ending at ?to (default now) so it can be viewed "as of" a day.
+app.get('/api/setups', handle(async (req, res) => {
+  const days = clamp(Number(req.query.days) || config.setups.lookbackDays, 1, 90);
+  const to = Number.isFinite(Number(req.query.to)) ? Number(req.query.to) : Date.now();
+  const since = to - days * 86400000;
+  const limit = clamp(Number(req.query.limit) || 30, 1, 100);
+  res.json(await getSetups({ since, until: to, limit }));
 }));
 
 // Destructive: wipe all stored block trades. Disabled unless ADMIN_KEY is set,

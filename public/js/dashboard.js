@@ -6,6 +6,9 @@ let activeTab = 'top';
 let topData = [];
 let pressureData = [];
 let bigPrints = [];
+let setupsData = [];
+let setupsFilter = 'all';
+let setupsLoaded = false;
 let dateLabel = 'today';
 let newsByDate = {};      // date -> report object
 let kbByDate = {};        // date -> { themes, ideas } knowledge base
@@ -26,11 +29,12 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   tab.classList.add('active');
   activeTab = tab.dataset.tab;
   if (activeTab === 'news') ensureNewsLoaded();
+  if (activeTab === 'setups' && !setupsLoaded) loadSetups();
   renderMain(false); // switching tabs resets scroll to top
 });
 
 // ---- Main panel renderers ----
-const SCROLLERS = '.table-wrap, .pressure-list, .bars, .heatmap';
+const SCROLLERS = '.table-wrap, .pressure-list, .bars, .heatmap, .setup-grid';
 
 function renderMain(preserveScroll = true) {
   // Preserve the scroll position across re-renders (live + 15s refresh) so the
@@ -38,6 +42,7 @@ function renderMain(preserveScroll = true) {
   const prev = preserveScroll ? mainPanel.querySelector(SCROLLERS)?.scrollTop || 0 : 0;
   if (activeTab === 'top') renderTop();
   else if (activeTab === 'bigprints') renderBigPrints();
+  else if (activeTab === 'setups') renderSetups();
   else if (activeTab === 'pressure') renderPressure();
   else if (activeTab === 'premarket') renderVolume();
   else if (activeTab === 'heatmap') renderHeatmap();
@@ -122,6 +127,73 @@ function renderBigPrints() {
       </div>
       ${bigPrints.length ? '' : emptyMsg()}
     </section>`;
+}
+
+function renderSetups() {
+  const counts = { all: setupsData.length, bullish: 0, bearish: 0 };
+  setupsData.forEach((s) => { if (s.bias === 'bullish') counts.bullish++; else if (s.bias === 'bearish') counts.bearish++; });
+  const list = setupsData.filter((s) => setupsFilter === 'all' || s.bias === setupsFilter);
+
+  const seg = ['all', 'bullish', 'bearish']
+    .map((f) => `<button class="seg-btn ${setupsFilter === f ? 'active' : ''}" data-setup-filter="${f}">${f[0].toUpperCase() + f.slice(1)} <b>${counts[f]}</b></button>`)
+    .join('');
+
+  const cards = list.map(setupCard).join('');
+  let body;
+  if (!setupsLoaded) body = emptyMsg();
+  else if (cards) body = cards;
+  else if (setupsData.length) body = `<div class="empty">No ${setupsFilter} setups — try another filter.</div>`;
+  else body = `<div class="empty">No unusual block prints detected in the lookback window.</div>`;
+
+  mainPanel.innerHTML = `
+    <section class="panel">
+      <div class="panel-head"><h2>Unusual Print Setups 🎯</h2>
+        <span class="hint">abnormal single prints · 10-day lookback · as of ${dateLabel}</span></div>
+      <div class="setup-bar"><div class="seg">${seg}</div>
+        <span class="setup-legend">price vs <b>block level</b> (where the big trades printed)</span></div>
+      <div class="setup-grid">${body}</div>
+    </section>`;
+}
+
+function setupCard(s) {
+  const sign = s.distPct > 0 ? '+' : '';
+  const distCls = s.distPct > 0 ? 'pos' : s.distPct < 0 ? 'neg' : '';
+  const biasLabel = s.bias === 'bullish' ? 'Bullish' : s.bias === 'bearish' ? 'Bearish' : 'Mixed';
+  // Gauge: center tick = block level; marker offset by distance (clamped ±15%).
+  const markPct = 50 + Math.max(-48, Math.min(48, (s.distPct / 15) * 48));
+  const adv = s.maxPctADV != null ? ` · up to <span class="${pctAdvClass(s.maxPctADV)}" style="padding:0 4px;border-radius:4px">${s.maxPctADV}% ADV</span>` : '';
+  const b = s.biggest;
+  return `<div class="setup-card ${s.bias}${s.watch ? ' watch' : ''}">
+    <div class="setup-top">
+      <span class="ticker setup-sym">${s.ticker}</span>
+      <span class="setup-bias ${s.bias}">${biasLabel}${s.watch ? ' · watch' : ''}</span>
+      <span class="setup-score" title="setup strength">${s.score}</span>
+    </div>
+    <div class="setup-desc">${s.setup}</div>
+    <div class="lvl-gauge">
+      <div class="lvl-track">
+        <div class="lvl-zero"></div>
+        <div class="lvl-mark ${distCls}" style="left:${markPct}%"></div>
+      </div>
+      <div class="lvl-cap"><span>← below level</span><span>block level</span><span>above level →</span></div>
+    </div>
+    <div class="setup-levels">
+      <div><span class="lbl">Last</span><span class="v">${fmt.price(s.lastPrice)}</span></div>
+      <div><span class="lbl">Block level</span><span class="v">${fmt.price(s.keyLevel)}</span></div>
+      <div><span class="lbl">vs level</span><span class="v ${distCls}">${sign}${s.distPct}%</span></div>
+    </div>
+    <div class="setup-meta">${s.outlierCount} unusual print${s.outlierCount > 1 ? 's' : ''} · ${fmt.money(s.outlierNotional)}${adv}</div>
+    <div class="setup-biggest">Largest: <b>${fmt.money(b.value)}</b> · ${fmt.int(b.size)} sh @ ${fmt.price(b.price)}
+      <span class="${tagClass(b.bidAsk)}">${b.bidAsk}</span> · ${fmt.date(b.tradedAt)}</div>
+  </div>`;
+}
+
+async function loadSetups() {
+  try {
+    setupsData = await api(`/api/setups?to=${dayBounds().to}&days=10&limit=30`);
+  } catch { setupsData = []; }
+  setupsLoaded = true;
+  if (activeTab === 'setups') renderMain(false);
 }
 
 function renderPressure() {
@@ -386,6 +458,9 @@ async function loadDay() {
       api(`/api/top?limit=18&${qs}`), api(`/api/pressure?limit=16&${qs}`), api(`/api/top-prints?limit=30&${qs}`),
     ]);
   } catch { topData = []; pressureData = []; bigPrints = []; }
+  // Setups use a multi-day lookback; reload them for the new anchor day.
+  setupsLoaded = false; setupsData = [];
+  if (activeTab === 'setups') loadSetups();
   printsBody.innerHTML = ''; printRows = 0;
   document.getElementById('prints-count').textContent = '--';
   try {
@@ -433,6 +508,8 @@ async function init() {
   wireDateNav();
   mainPanel.addEventListener('click', (e) => {
     if (e.target.closest('[data-gen-news]')) generateNews();
+    const f = e.target.closest('[data-setup-filter]');
+    if (f) { setupsFilter = f.dataset.setupFilter; renderMain(false); }
   });
   setMarketBadge();
   setInterval(setMarketBadge, 30000);
@@ -447,7 +524,7 @@ async function init() {
       [topData, pressureData, bigPrints] = await Promise.all([
         api(`/api/top?limit=18&${qs}`), api(`/api/pressure?limit=16&${qs}`), api(`/api/top-prints?limit=30&${qs}`),
       ]);
-      renderMain();
+      if (activeTab === 'setups') loadSetups(); else renderMain();
     } catch { /* ignore */ }
   }, 15000);
   setInterval(() => { if (isTodaySelected()) refreshStats(); }, 5000);

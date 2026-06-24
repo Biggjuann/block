@@ -78,6 +78,20 @@ export const config = {
     minNotional: num(process.env.SWEEP_MIN_NOTIONAL, 5_000_000),
     cooldownMs: num(process.env.SWEEP_COOLDOWN_MS, 30000),
   },
+  // Unusual-print "setups" detector: flags tickers with abnormally large
+  // single prints and classifies the setup bullish/bearish by where price
+  // sits relative to where those big trades printed.
+  setups: {
+    lookbackDays: num(process.env.SETUPS_LOOKBACK_DAYS, 10),
+    // A single print is "unusual" if it clears the notional floor AND either
+    // is a large % of ADV, or is a statistical outlier vs the ticker's own
+    // recent prints (robust median multiple / z-score).
+    minNotional: num(process.env.SETUPS_MIN_NOTIONAL, 2_000_000),
+    pctAdvUnusual: num(process.env.SETUPS_PCT_ADV, 1.5),
+    medianMult: num(process.env.SETUPS_MEDIAN_MULT, 2.5),
+    sigma: num(process.env.SETUPS_SIGMA, 2),
+    minBaseline: num(process.env.SETUPS_MIN_BASELINE, 5),
+  },
   // AI Daily News brief (Claude) + optional external news-signal engine.
   news: {
     model: process.env.NEWS_MODEL || 'claude-opus-4-8',
