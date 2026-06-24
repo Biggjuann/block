@@ -158,32 +158,46 @@ app.get('/api/history', handle(async (req, res) => {
 }));
 
 // ---- AI Daily News brief ----
-const generatingNews = new Set();
+// Generation is long (LLM + web search), so it runs in the background and the
+// client polls GET /api/news — holding the HTTP request open would hit the
+// platform's proxy timeout (which returns a non-JSON "upstream error" body).
+const newsJobs = new Map(); // date -> { status: 'running'|'error', error?, at }
 
-// Fetch the cached brief for a day (null content if not generated yet).
 app.get('/api/news', handle(async (req, res) => {
   const date = String(req.query.date || '').slice(0, 10);
   if (!date) return res.status(400).json({ error: 'date required' });
   const report = await getDailyReport(date);
-  res.json(report || { date, content: null });
+  if (report) return res.json(report);
+  const job = newsJobs.get(date);
+  if (job) return res.json({ date, content: null, status: job.status, error: job.error });
+  res.json({ date, content: null });
 }));
 
-// Generate (and cache) the brief for a day. Costs an LLM + web-search call.
 app.post('/api/news/generate', handle(async (req, res) => {
   if (!newsEnabled()) return res.status(400).json({ error: 'AI news disabled — set ANTHROPIC_API_KEY' });
   const date = String(req.query.date || '').slice(0, 10);
   if (!date) return res.status(400).json({ error: 'date required' });
-  if (generatingNews.has(date)) return res.status(429).json({ error: 'already generating for this date' });
+  const job = newsJobs.get(date);
+  if (job && job.status === 'running') return res.status(202).json({ date, status: 'generating' });
+
   const { since, until } = dayWindow(req.query);
-  generatingNews.add(date);
-  try {
-    const out = await generateDailyNews({ date, since, until });
-    const generatedAt = Date.now();
-    if (!out.empty) await saveDailyReport({ date, content: out.content, model: config.news.model, generatedAt });
-    res.json({ date, content: out.content, model: config.news.model, generatedAt, empty: !!out.empty });
-  } finally {
-    generatingNews.delete(date);
-  }
+  newsJobs.set(date, { status: 'running', at: Date.now() });
+  // Fire and forget — respond immediately; client polls /api/news for the result.
+  (async () => {
+    try {
+      const out = await generateDailyNews({ date, since, until });
+      if (out.empty) {
+        newsJobs.set(date, { status: 'error', error: 'No block trades were recorded for this day.', at: Date.now() });
+      } else {
+        await saveDailyReport({ date, content: out.content, model: config.news.model, generatedAt: Date.now() });
+        newsJobs.delete(date); // result now lives in the DB
+      }
+    } catch (err) {
+      console.error('news generation failed', err.message);
+      newsJobs.set(date, { status: 'error', error: err.message, at: Date.now() });
+    }
+  })();
+  res.status(202).json({ date, status: 'generating' });
 }));
 
 // ---- Static frontend ----

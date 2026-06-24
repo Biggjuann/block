@@ -9,6 +9,7 @@ let bigPrints = [];
 let dateLabel = 'today';
 let newsByDate = {};      // date -> report object
 let newsLoading = false;
+let newsLoadingDate = null;
 let cfg = {};             // /api/config snapshot (newsEnabled, newsSignals)
 const PRINT_MIN = 400000;
 const printsBody = document.getElementById('prints-body');
@@ -205,7 +206,7 @@ function renderNews() {
   const key = dateKey();
   const report = newsByDate[key];
   let body;
-  if (newsLoading) {
+  if (newsLoading && newsLoadingDate === key) {
     body = `<div class="news-loading"><div class="spinner"></div>
       <div>Researching ${dateLabel === 'today' ? "today's" : dateLabel} news &amp; flow…</div>
       <div class="news-sub">Reading sources and writing the brief — this can take 30–60s.</div></div>`;
@@ -244,18 +245,37 @@ async function generateNews() {
   if (!cfg.newsEnabled || newsLoading) return;
   const key = dateKey();
   const { from, to } = dayBounds();
-  newsLoading = true; renderMain(false);
+  newsLoading = true; newsLoadingDate = key; renderMain(false);
   try {
     const r = await fetch(`/api/news/generate?date=${key}&from=${from}&to=${to}`, { method: 'POST' });
-    const data = await r.json();
-    if (!r.ok) throw new Error(data.error || 'generation failed');
-    newsByDate[key] = data;
+    if (r.status >= 400 && r.status !== 429) {
+      let msg = 'HTTP ' + r.status;
+      try { const j = await r.json(); msg = j.error || msg; } catch { /* non-JSON */ }
+      throw new Error(msg);
+    }
+    // Generation runs in the background — poll until the brief is ready.
+    const deadline = Date.now() + 4 * 60 * 1000;
+    let done = false;
+    while (Date.now() < deadline) {
+      await sleep(4000);
+      let rep;
+      try { rep = await api(`/api/news?date=${key}`); } catch { continue; }
+      if (rep && rep.content) { newsByDate[key] = rep; done = true; break; }
+      if (rep && rep.status === 'error') {
+        newsByDate[key] = { date: key, content: null, error: rep.error || 'generation failed' };
+        done = true; break;
+      }
+      // status 'running' (or no content yet) → keep polling
+    }
+    if (!done) newsByDate[key] = { date: key, content: null, error: 'Timed out — try again.' };
   } catch (err) {
     newsByDate[key] = { date: key, content: null, error: err.message };
   } finally {
-    newsLoading = false; renderMain(false);
+    newsLoading = false; newsLoadingDate = null; renderMain(false);
   }
 }
+
+const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
 // ---- Prints feed ----
 function addPrint(t, animate = true) {
