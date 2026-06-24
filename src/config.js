@@ -78,6 +78,13 @@ export const config = {
     minNotional: num(process.env.SWEEP_MIN_NOTIONAL, 5_000_000),
     cooldownMs: num(process.env.SWEEP_COOLDOWN_MS, 30000),
   },
+  // AI Daily News brief (Claude) + optional external news-signal engine.
+  news: {
+    model: process.env.NEWS_MODEL || 'claude-opus-4-8',
+    // Base URL of the News sentiment/signals service (the FastAPI engine):
+    // exposes GET /signals and GET /signals/{ticker}. Leave empty to skip it.
+    apiUrl: (process.env.NEWS_API_URL || '').replace(/\/+$/, ''),
+  },
 };
 
 const hasShare = Boolean(config.schwab.tokenUrl);

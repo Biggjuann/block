@@ -10,8 +10,10 @@ import { startFundamentals } from './fundamentals.js';
 import { dispatchDiscord, dispatchDiscordSweep, evaluateAlert } from './alerts.js';
 import { detectSweep } from './sweeps.js';
 import { getChartData } from './chart.js';
+import { generateDailyNews, newsEnabled, newsSignalsConfigured } from './news.js';
 import {
   dbBackend,
+  getDailyReport,
   getPressure,
   getRecentBlockTrades,
   getRecentPrints,
@@ -20,6 +22,7 @@ import {
   initDb,
   purgeBlockTrades,
   queryHistory,
+  saveDailyReport,
 } from './db/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -55,6 +58,8 @@ app.get('/api/config', (_req, res) =>
     symbolCount: config.schwab.symbols.length,
     alerts: { minNotional: config.alerts.minNotional, minPctADV: config.alerts.minPctADV },
     storage: dbBackend,
+    newsEnabled: newsEnabled(),
+    newsSignals: newsSignalsConfigured(),
     status,
   })
 );
@@ -150,6 +155,35 @@ app.get('/api/history', handle(async (req, res) => {
     offset: Math.max(0, num(q.offset) || 0),
   });
   res.json(result);
+}));
+
+// ---- AI Daily News brief ----
+const generatingNews = new Set();
+
+// Fetch the cached brief for a day (null content if not generated yet).
+app.get('/api/news', handle(async (req, res) => {
+  const date = String(req.query.date || '').slice(0, 10);
+  if (!date) return res.status(400).json({ error: 'date required' });
+  const report = await getDailyReport(date);
+  res.json(report || { date, content: null });
+}));
+
+// Generate (and cache) the brief for a day. Costs an LLM + web-search call.
+app.post('/api/news/generate', handle(async (req, res) => {
+  if (!newsEnabled()) return res.status(400).json({ error: 'AI news disabled — set ANTHROPIC_API_KEY' });
+  const date = String(req.query.date || '').slice(0, 10);
+  if (!date) return res.status(400).json({ error: 'date required' });
+  if (generatingNews.has(date)) return res.status(429).json({ error: 'already generating for this date' });
+  const { since, until } = dayWindow(req.query);
+  generatingNews.add(date);
+  try {
+    const out = await generateDailyNews({ date, since, until });
+    const generatedAt = Date.now();
+    if (!out.empty) await saveDailyReport({ date, content: out.content, model: config.news.model, generatedAt });
+    res.json({ date, content: out.content, model: config.news.model, generatedAt, empty: !!out.empty });
+  } finally {
+    generatingNews.delete(date);
+  }
 }));
 
 // ---- Static frontend ----

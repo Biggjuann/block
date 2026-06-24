@@ -33,6 +33,29 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_block_trades_traded_at ON block_trades(traded_at)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_block_trades_ticker    ON block_trades(ticker)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_block_trades_value     ON block_trades(value)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      date         TEXT PRIMARY KEY,
+      content      TEXT NOT NULL,
+      model        TEXT,
+      generated_at BIGINT NOT NULL
+    )`);
+}
+
+export async function getDailyReport(date) {
+  const r = await pool.query('SELECT date, content, model, generated_at FROM daily_reports WHERE date = $1', [date]);
+  if (!r.rows[0]) return null;
+  const x = r.rows[0];
+  return { date: x.date, content: x.content, model: x.model, generatedAt: Number(x.generated_at) };
+}
+
+export async function saveDailyReport({ date, content, model, generatedAt }) {
+  await pool.query(
+    `INSERT INTO daily_reports (date, content, model, generated_at) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (date) DO UPDATE SET content = EXCLUDED.content, model = EXCLUDED.model,
+       generated_at = EXCLUDED.generated_at`,
+    [date, content, model, generatedAt]
+  );
 }
 
 const startOfTodayMs = () => {

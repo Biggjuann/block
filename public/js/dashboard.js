@@ -1,4 +1,4 @@
-import { api, connectWS, fmt, setStatus, tagClass, pctAdvClass, setMarketBadge } from './common.js';
+import { api, connectWS, fmt, setStatus, tagClass, pctAdvClass, setMarketBadge, mdToHtml } from './common.js';
 import { enableTickerClicks } from './chart.js';
 import { initSortable } from './sortable.js';
 
@@ -7,6 +7,9 @@ let topData = [];
 let pressureData = [];
 let bigPrints = [];
 let dateLabel = 'today';
+let newsByDate = {};      // date -> report object
+let newsLoading = false;
+let cfg = {};             // /api/config snapshot (newsEnabled, newsSignals)
 const PRINT_MIN = 400000;
 const printsBody = document.getElementById('prints-body');
 const mainPanel = document.getElementById('main-panel');
@@ -19,6 +22,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
   tab.classList.add('active');
   activeTab = tab.dataset.tab;
+  if (activeTab === 'news' && newsByDate[dateKey()] === undefined) loadNews();
   renderMain(false); // switching tabs resets scroll to top
 });
 
@@ -34,6 +38,7 @@ function renderMain(preserveScroll = true) {
   else if (activeTab === 'pressure') renderPressure();
   else if (activeTab === 'premarket') renderVolume();
   else if (activeTab === 'heatmap') renderHeatmap();
+  else if (activeTab === 'news') renderNews();
   else if (activeTab === 'earnings') renderSoon('Earnings Calendar', '📅',
     'Upcoming earnings ranked by block-flow interest. Connect a fundamentals feed to populate this view.');
   else if (activeTab === 'exdiv') renderSoon('Ex-Dividend', '💸',
@@ -193,6 +198,65 @@ function renderSoon(title, icon, desc) {
 
 const emptyMsg = () => `<div class="empty">Waiting for block trades…</div>`;
 
+// ---- Daily News (AI brief) ----
+const dateKey = () => toInputValue(selectedDate);
+
+function renderNews() {
+  const key = dateKey();
+  const report = newsByDate[key];
+  let body;
+  if (newsLoading) {
+    body = `<div class="news-loading"><div class="spinner"></div>
+      <div>Researching ${dateLabel === 'today' ? "today's" : dateLabel} news &amp; flow…</div>
+      <div class="news-sub">Reading sources and writing the brief — this can take 30–60s.</div></div>`;
+  } else if (report && report.content) {
+    const when = report.generatedAt ? `generated ${fmt.datetime(report.generatedAt)}` : '';
+    body = `<div class="news-meta"><span>${when}${report.model ? ` · ${report.model}` : ''}</span>
+        <button class="ghost-btn sm" data-gen-news>↻ Regenerate</button></div>
+      <article class="md">${mdToHtml(report.content)}</article>`;
+  } else {
+    const err = report && report.error ? `<div class="news-err">${report.error}</div>` : '';
+    const canGen = cfg.newsEnabled;
+    const hint = canGen
+      ? `Generate an AI brief tying the day's biggest block trades to real news catalysts${cfg.newsSignals ? ', using your news engine + web research' : ' via web research'}.`
+      : 'Set <code>ANTHROPIC_API_KEY</code> on the server to enable AI news briefs.';
+    body = `<div class="news-empty"><div class="big">✨</div>
+        <div>${hint}</div>${err}
+        <button class="gen-btn" data-gen-news ${canGen ? '' : 'disabled'}>Generate brief for ${dateLabel}</button>
+      </div>`;
+  }
+  mainPanel.innerHTML = `
+    <section class="panel">
+      <div class="panel-head"><h2>Daily News ✨</h2><span class="hint">AI brief · ${dateLabel}</span></div>
+      <div class="news-wrap">${body}</div>
+    </section>`;
+}
+
+async function loadNews() {
+  const key = dateKey();
+  try {
+    newsByDate[key] = await api(`/api/news?date=${key}`);
+  } catch { /* ignore */ }
+  if (activeTab === 'news') renderMain(false);
+}
+
+async function generateNews() {
+  if (!cfg.newsEnabled || newsLoading) return;
+  const key = dateKey();
+  const { from, to } = dayBounds();
+  newsLoading = true; renderMain(false);
+  try {
+    const r = await fetch(`/api/news/generate?date=${key}&from=${from}&to=${to}`, { method: 'POST' });
+    const data = await r.json();
+    if (!r.ok) throw new Error(data.error || 'generation failed');
+    newsByDate[key] = data;
+  } catch (err) {
+    newsByDate[key] = { date: key, content: null, error: err.message };
+  } finally {
+    newsLoading = false; renderMain(false);
+  }
+}
+
 // ---- Prints feed ----
 function addPrint(t, animate = true) {
   if (t.size < PRINT_MIN) return;
@@ -283,6 +347,7 @@ function setDate(d) {
   document.querySelector('.date-nav').classList.toggle('snapshot', !isTodaySelected());
   document.getElementById('day-next').disabled = isTodaySelected();
   loadDay();
+  if (activeTab === 'news') loadNews();
 }
 
 function wireDateNav() {
@@ -299,13 +364,16 @@ function wireDateNav() {
 
 async function init() {
   try {
-    const cfg = await api('/api/config');
+    cfg = await api('/api/config');
     setStatus(cfg.status);
   } catch { /* ignore */ }
 
   enableTickerClicks();
   initSortable();
   wireDateNav();
+  mainPanel.addEventListener('click', (e) => {
+    if (e.target.closest('[data-gen-news]')) generateNews();
+  });
   setMarketBadge();
   setInterval(setMarketBadge, 30000);
 

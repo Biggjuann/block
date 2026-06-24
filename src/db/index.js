@@ -16,3 +16,5 @@ export const getStats = impl.getStats;
 export const getPressure = impl.getPressure;
 export const queryHistory = impl.queryHistory;
 export const purgeBlockTrades = impl.purgeBlockTrades;
+export const getDailyReport = impl.getDailyReport;
+export const saveDailyReport = impl.saveDailyReport;

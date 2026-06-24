@@ -29,6 +29,29 @@ export async function initDb() {
   // Migration for DBs created before pct_adv existed.
   const cols = db.prepare(`PRAGMA table_info(block_trades)`).all().map((c) => c.name);
   if (!cols.includes('pct_adv')) db.exec(`ALTER TABLE block_trades ADD COLUMN pct_adv REAL`);
+
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS daily_reports (
+      date         TEXT PRIMARY KEY,
+      content      TEXT NOT NULL,
+      model        TEXT,
+      generated_at INTEGER NOT NULL
+    );
+  `);
+}
+
+export async function getDailyReport(date) {
+  return db
+    .prepare('SELECT date, content, model, generated_at AS generatedAt FROM daily_reports WHERE date = ?')
+    .get(date) || null;
+}
+
+export async function saveDailyReport({ date, content, model, generatedAt }) {
+  db.prepare(
+    `INSERT INTO daily_reports (date, content, model, generated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(date) DO UPDATE SET content = excluded.content, model = excluded.model,
+       generated_at = excluded.generated_at`
+  ).run(date, content, model, generatedAt);
 }
 
 const startOfTodayMs = () => {
