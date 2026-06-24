@@ -1,6 +1,16 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.js';
-import { getTopTrades, getPressure, getStats, queryHistory } from './db/index.js';
+import {
+  getTopTrades, getPressure, getStats, queryHistory,
+  getRecentThemes, getRecentIdeas,
+} from './db/index.js';
+
+const LOOKBACK_DAYS = 21; // how far back to cross-reference prior briefs
+const addDays = (dateStr, n) => {
+  const [y, m, d] = dateStr.split('-').map(Number);
+  const t = new Date(Date.UTC(y, m - 1, d) + n * 86400000);
+  return t.toISOString().slice(0, 10);
+};
 
 const money = (n) => {
   n = Number(n) || 0;
@@ -62,12 +72,15 @@ function signalsToText(signals) {
 export async function generateDailyNews({ date, since, until }) {
   if (!newsEnabled()) throw new Error('ANTHROPIC_API_KEY not configured');
 
-  const [top, pressure, stats, bigRes, signals] = await Promise.all([
+  const priorSince = addDays(date, -LOOKBACK_DAYS);
+  const [top, pressure, stats, bigRes, signals, priorThemes, priorIdeas] = await Promise.all([
     getTopTrades({ since, until, limit: 15 }),
     getPressure({ since, until, limit: 15 }),
     getStats({ since, until }),
     queryHistory({ from: since, to: until - 1, sort: 'value', order: 'desc', limit: 30 }),
     fetchNewsSignals(),
+    getRecentThemes({ since: priorSince, before: date, limit: 12 }),
+    getRecentIdeas({ since: priorSince, before: date, limit: 40 }),
   ]);
   const big = bigRes.rows;
   if (!big.length) {
@@ -78,6 +91,14 @@ export async function generateDailyNews({ date, since, until }) {
   const bigLines = big.map((b) => `- ${b.ticker} ${money(b.value)} — ${int(b.size)} sh @ $${b.price} (${b.bidAsk}${b.pctADV != null ? `, ${b.pctADV}% ADV` : ''})`).join('\n');
   const presLines = pressure.map((p) => `- ${p.ticker}: net ${p.net >= 0 ? '+' : ''}${money(p.net)} (${p.net >= 0 ? 'net buying' : 'net selling'})`).join('\n');
   const sigText = signalsToText(signals);
+
+  // Prior knowledge base: themes and ideas from recent briefs, for continuity.
+  const themeLines = (priorThemes || []).map((t) => `- ${t.theme} (seen ${t.days} day${t.days > 1 ? 's' : ''}, last ${t.lastDate})`).join('\n');
+  const ideaLines = (priorIdeas || []).slice(0, 30).map((i) => `- ${i.ticker} [${i.bias || 'n/a'}] ${i.date}: ${i.thesis || ''}${i.catalyst ? ` — catalyst: ${i.catalyst}` : ''}`).join('\n');
+  const priorBlock = (themeLines || ideaLines)
+    ? `\n\nPRIOR KNOWLEDGE BASE (from briefs over the last ${LOOKBACK_DAYS} days — use this to track continuity):
+${themeLines ? `Recurring themes:\n${themeLines}\n` : ''}${ideaLines ? `Tracked ideas/setups:\n${ideaLines}` : ''}`
+    : '';
 
   const dataBlock = `Date: ${date}
 Totals: ${int(stats.trades)} block trades, ${money(stats.value)} total notional.
@@ -100,7 +121,7 @@ Write in clean Markdown. Be specific and grounded: tie big prints to real cataly
 
   const user = `Here is the block-trade flow for ${date}:
 
-${dataBlock}
+${dataBlock}${priorBlock}
 
 Research the day's market news with web search and produce a brief with exactly these sections:
 
@@ -108,10 +129,13 @@ Research the day's market news with web search and produce a brief with exactly 
 3–5 bullets with the day's biggest takeaways.
 
 ## Themes of the Day
-The dominant sector/macro themes the flow points to.
+The dominant sector/macro themes the flow points to. Where a theme also appears in the prior knowledge base above, say whether it is building, persisting, or fading.
 
 ## Why the Big Trades Happened
 For the most notable names above, explain the likely reason for the large prints — tie each to a specific catalyst or news item (with a source link) where one exists; flag names with no obvious catalyst as worth watching.
+
+## Continuity & Follow-ups
+Cross-reference today's flow against the prior knowledge base: tickers reappearing in the flow, prior setups that are progressing or have triggered their catalyst, and theses that have been confirmed or invalidated. If there is no prior context yet, say so briefly.
 
 ## Consolidating Setups to Watch
 Tickers from the flow that have been consolidating/coiling and are seeing unusual block activity, with the specific news catalysts that could fuel a breakout or breakdown. Use the aggressor pressure for directional bias where relevant.
@@ -141,5 +165,58 @@ Focus your research on news from on or around ${date}.`;
     break;
   }
   const content = resp.content.filter((b) => b.type === 'text').map((b) => b.text).join('\n').trim();
-  return { content: content || '_No analysis was produced._', empty: false, usedSignals: Boolean(sigText) };
+  const structured = await extractStructured(client, content);
+  return { content: content || '_No analysis was produced._', empty: false, usedSignals: Boolean(sigText), structured };
+}
+
+const EXTRACT_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  properties: {
+    themes: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: { theme: { type: 'string' }, summary: { type: 'string' } },
+        required: ['theme', 'summary'],
+      },
+    },
+    ideas: {
+      type: 'array',
+      items: {
+        type: 'object', additionalProperties: false,
+        properties: {
+          ticker: { type: 'string' },
+          thesis: { type: 'string' },
+          catalyst: { type: 'string' },
+          bias: { type: 'string', enum: ['bullish', 'bearish', 'neutral'] },
+        },
+        required: ['ticker', 'thesis', 'catalyst', 'bias'],
+      },
+    },
+  },
+  required: ['themes', 'ideas'],
+};
+
+// Pull structured themes + per-ticker ideas out of the finished brief so they
+// can be stored and cross-referenced by future briefs. Best-effort.
+async function extractStructured(client, markdown) {
+  if (!markdown) return { themes: [], ideas: [] };
+  try {
+    const res = await client.messages.create({
+      model: config.news.extractModel,
+      max_tokens: 4000,
+      output_config: { format: { type: 'json_schema', name: 'brief_extract', schema: EXTRACT_SCHEMA } },
+      messages: [{
+        role: 'user',
+        content: `Extract the key themes and per-ticker trade ideas from this market brief. Use short theme labels (2-5 words) and concise theses. Normalize tickers to uppercase symbols.\n\n${markdown}`,
+      }],
+    });
+    const text = res.content.filter((b) => b.type === 'text').map((b) => b.text).join('');
+    const parsed = JSON.parse(text);
+    return { themes: parsed.themes || [], ideas: parsed.ideas || [] };
+  } catch (err) {
+    console.error('brief extraction failed', err.message);
+    return { themes: [], ideas: [] };
+  }
 }

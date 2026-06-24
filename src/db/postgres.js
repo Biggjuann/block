@@ -40,6 +40,14 @@ export async function initDb() {
       model        TEXT,
       generated_at BIGINT NOT NULL
     )`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS brief_themes (
+      id BIGSERIAL PRIMARY KEY, date TEXT NOT NULL, theme TEXT NOT NULL, summary TEXT)`);
+  await pool.query(`CREATE TABLE IF NOT EXISTS brief_ideas (
+      id BIGSERIAL PRIMARY KEY, date TEXT NOT NULL, ticker TEXT NOT NULL,
+      thesis TEXT, catalyst TEXT, bias TEXT)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brief_themes_date  ON brief_themes(date)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brief_ideas_date   ON brief_ideas(date)`);
+  await pool.query(`CREATE INDEX IF NOT EXISTS idx_brief_ideas_ticker ON brief_ideas(ticker)`);
 }
 
 export async function getDailyReport(date) {
@@ -56,6 +64,57 @@ export async function saveDailyReport({ date, content, model, generatedAt }) {
        generated_at = EXCLUDED.generated_at`,
     [date, content, model, generatedAt]
   );
+}
+
+export async function saveBriefStructured(date, themes = [], ideas = []) {
+  const c = await pool.connect();
+  try {
+    await c.query('BEGIN');
+    await c.query('DELETE FROM brief_themes WHERE date = $1', [date]);
+    await c.query('DELETE FROM brief_ideas WHERE date = $1', [date]);
+    for (const t of themes) {
+      if (!t?.theme) continue;
+      await c.query('INSERT INTO brief_themes (date, theme, summary) VALUES ($1,$2,$3)',
+        [date, String(t.theme).slice(0, 200), String(t.summary || '').slice(0, 600)]);
+    }
+    for (const i of ideas) {
+      if (!i?.ticker) continue;
+      await c.query('INSERT INTO brief_ideas (date, ticker, thesis, catalyst, bias) VALUES ($1,$2,$3,$4,$5)',
+        [date, String(i.ticker).toUpperCase().slice(0, 10), String(i.thesis || '').slice(0, 600), String(i.catalyst || '').slice(0, 400), String(i.bias || '').slice(0, 16)]);
+    }
+    await c.query('COMMIT');
+  } catch (e) {
+    await c.query('ROLLBACK'); throw e;
+  } finally {
+    c.release();
+  }
+}
+
+export async function getRecentThemes({ since, before, limit = 12 } = {}) {
+  const r = await pool.query(
+    `SELECT theme, COUNT(DISTINCT date)::int AS days, MAX(date) AS "lastDate", MAX(summary) AS summary
+       FROM brief_themes WHERE date >= $1 AND date < $2
+      GROUP BY theme ORDER BY days DESC, MAX(date) DESC LIMIT $3`,
+    [since, before, limit]
+  );
+  return r.rows;
+}
+
+export async function getRecentIdeas({ since, before, limit = 40 } = {}) {
+  const r = await pool.query(
+    `SELECT date, ticker, thesis, catalyst, bias FROM brief_ideas
+      WHERE date >= $1 AND date < $2 ORDER BY date DESC LIMIT $3`,
+    [since, before, limit]
+  );
+  return r.rows;
+}
+
+export async function getIdeasByTicker(ticker, limit = 20) {
+  const r = await pool.query(
+    'SELECT date, ticker, thesis, catalyst, bias FROM brief_ideas WHERE ticker = $1 ORDER BY date DESC LIMIT $2',
+    [String(ticker).toUpperCase(), limit]
+  );
+  return r.rows;
 }
 
 const startOfTodayMs = () => {

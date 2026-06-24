@@ -81,6 +81,8 @@ export const config = {
   // AI Daily News brief (Claude) + optional external news-signal engine.
   news: {
     model: process.env.NEWS_MODEL || 'claude-opus-4-8',
+    // Cheaper model used to extract structured themes/ideas from each brief.
+    extractModel: process.env.NEWS_EXTRACT_MODEL || 'claude-haiku-4-5',
     // Base URL of the News sentiment/signals service (the FastAPI engine):
     // exposes GET /signals and GET /signals/{ticker}. Leave empty to skip it.
     apiUrl: (process.env.NEWS_API_URL || '').replace(/\/+$/, ''),

@@ -8,9 +8,11 @@ let pressureData = [];
 let bigPrints = [];
 let dateLabel = 'today';
 let newsByDate = {};      // date -> report object
+let kbByDate = {};        // date -> { themes, ideas } knowledge base
 let newsLoading = false;
 let newsLoadingDate = null;
 let cfg = {};             // /api/config snapshot (newsEnabled, newsSignals)
+const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const PRINT_MIN = 400000;
 const printsBody = document.getElementById('prints-body');
 const mainPanel = document.getElementById('main-panel');
@@ -23,7 +25,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   document.querySelectorAll('.tab').forEach((t) => t.classList.remove('active'));
   tab.classList.add('active');
   activeTab = tab.dataset.tab;
-  if (activeTab === 'news' && newsByDate[dateKey()] === undefined) loadNews();
+  if (activeTab === 'news') ensureNewsLoaded();
   renderMain(false); // switching tabs resets scroll to top
 });
 
@@ -229,8 +231,46 @@ function renderNews() {
   mainPanel.innerHTML = `
     <section class="panel">
       <div class="panel-head"><h2>Daily News ✨</h2><span class="hint">AI brief · ${dateLabel}</span></div>
-      <div class="news-wrap">${body}</div>
+      <div class="news-wrap">${kbHtml(key)}${body}</div>
     </section>`;
+}
+
+// Accumulated knowledge base (themes + ideas tracked across briefs).
+function kbHtml(key) {
+  const kb = kbByDate[key];
+  if (!kb) return '';
+  const themes = (kb.themes || []).slice(0, 12);
+  const ideas = (kb.ideas || []).slice(0, 18);
+  if (!themes.length && !ideas.length) return '';
+  const tchips = themes.map((t) => `<span class="kb-theme" title="${esc(t.summary)}">${esc(t.theme)} <b>×${t.days}</b></span>`).join('');
+  const ilines = ideas.map((i) => `<div class="kb-idea">
+      <span class="ticker">${esc(i.ticker)}</span>
+      <span class="kb-bias ${esc(i.bias) || 'neutral'}">${esc(i.bias) || '—'}</span>
+      <span class="kb-date">${esc(i.date)}</span>
+      <div class="kb-thesis">${esc(i.thesis)}</div></div>`).join('');
+  return `<details class="kb"${themes.length || ideas.length ? ' open' : ''}>
+    <summary>📚 Knowledge base — recurring themes &amp; tracked ideas (last 30 days)</summary>
+    ${themes.length ? `<div class="kb-themes">${tchips}</div>` : ''}
+    ${ideas.length ? `<div class="kb-ideas">${ilines}</div>` : ''}
+  </details>`;
+}
+
+async function loadKB() {
+  const key = dateKey();
+  try {
+    const [themes, ideas] = await Promise.all([
+      api(`/api/themes?date=${key}&days=30`),
+      api(`/api/ideas?date=${key}&days=30`),
+    ]);
+    kbByDate[key] = { themes, ideas };
+  } catch { /* ignore */ }
+  if (activeTab === 'news') renderMain(false);
+}
+
+function ensureNewsLoaded() {
+  const key = dateKey();
+  if (newsByDate[key] === undefined) loadNews();
+  if (kbByDate[key] === undefined) loadKB();
 }
 
 async function loadNews() {
@@ -260,7 +300,7 @@ async function generateNews() {
       await sleep(4000);
       let rep;
       try { rep = await api(`/api/news?date=${key}`); } catch { continue; }
-      if (rep && rep.content) { newsByDate[key] = rep; done = true; break; }
+      if (rep && rep.content) { newsByDate[key] = rep; kbByDate[key] = undefined; loadKB(); done = true; break; }
       if (rep && rep.status === 'error') {
         newsByDate[key] = { date: key, content: null, error: rep.error || 'generation failed' };
         done = true; break;
@@ -367,7 +407,7 @@ function setDate(d) {
   document.querySelector('.date-nav').classList.toggle('snapshot', !isTodaySelected());
   document.getElementById('day-next').disabled = isTodaySelected();
   loadDay();
-  if (activeTab === 'news') loadNews();
+  if (activeTab === 'news') ensureNewsLoaded();
 }
 
 function wireDateNav() {

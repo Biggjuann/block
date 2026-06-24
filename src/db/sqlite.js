@@ -37,6 +37,17 @@ export async function initDb() {
       model        TEXT,
       generated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS brief_themes (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL, theme TEXT NOT NULL, summary TEXT
+    );
+    CREATE TABLE IF NOT EXISTS brief_ideas (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      date TEXT NOT NULL, ticker TEXT NOT NULL, thesis TEXT, catalyst TEXT, bias TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_brief_themes_date  ON brief_themes(date);
+    CREATE INDEX IF NOT EXISTS idx_brief_ideas_date   ON brief_ideas(date);
+    CREATE INDEX IF NOT EXISTS idx_brief_ideas_ticker ON brief_ideas(ticker);
   `);
 }
 
@@ -52,6 +63,45 @@ export async function saveDailyReport({ date, content, model, generatedAt }) {
      ON CONFLICT(date) DO UPDATE SET content = excluded.content, model = excluded.model,
        generated_at = excluded.generated_at`
   ).run(date, content, model, generatedAt);
+}
+
+// Replace the structured themes/ideas extracted from a day's brief.
+export async function saveBriefStructured(date, themes = [], ideas = []) {
+  const tx = db.transaction(() => {
+    db.prepare('DELETE FROM brief_themes WHERE date = ?').run(date);
+    db.prepare('DELETE FROM brief_ideas WHERE date = ?').run(date);
+    const ti = db.prepare('INSERT INTO brief_themes (date, theme, summary) VALUES (?, ?, ?)');
+    for (const t of themes) if (t?.theme) ti.run(date, String(t.theme).slice(0, 200), String(t.summary || '').slice(0, 600));
+    const ii = db.prepare('INSERT INTO brief_ideas (date, ticker, thesis, catalyst, bias) VALUES (?, ?, ?, ?, ?)');
+    for (const i of ideas) if (i?.ticker) ii.run(date, String(i.ticker).toUpperCase().slice(0, 10), String(i.thesis || '').slice(0, 600), String(i.catalyst || '').slice(0, 400), String(i.bias || '').slice(0, 16));
+  });
+  tx();
+}
+
+// Recurring themes within [since, before): grouped by theme with day counts.
+export async function getRecentThemes({ since, before, limit = 12 } = {}) {
+  return db
+    .prepare(
+      `SELECT theme, COUNT(DISTINCT date) AS days, MAX(date) AS lastDate, MAX(summary) AS summary
+         FROM brief_themes WHERE date >= ? AND date < ?
+        GROUP BY theme ORDER BY days DESC, lastDate DESC LIMIT ?`
+    )
+    .all(since, before, limit);
+}
+
+export async function getRecentIdeas({ since, before, limit = 40 } = {}) {
+  return db
+    .prepare(
+      `SELECT date, ticker, thesis, catalyst, bias FROM brief_ideas
+        WHERE date >= ? AND date < ? ORDER BY date DESC LIMIT ?`
+    )
+    .all(since, before, limit);
+}
+
+export async function getIdeasByTicker(ticker, limit = 20) {
+  return db
+    .prepare('SELECT date, ticker, thesis, catalyst, bias FROM brief_ideas WHERE ticker = ? ORDER BY date DESC LIMIT ?')
+    .all(String(ticker).toUpperCase(), limit);
 }
 
 const startOfTodayMs = () => {

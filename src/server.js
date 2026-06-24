@@ -14,14 +14,18 @@ import { generateDailyNews, newsEnabled, newsSignalsConfigured } from './news.js
 import {
   dbBackend,
   getDailyReport,
+  getIdeasByTicker,
   getPressure,
   getRecentBlockTrades,
+  getRecentIdeas,
   getRecentPrints,
+  getRecentThemes,
   getStats,
   getTopTrades,
   initDb,
   purgeBlockTrades,
   queryHistory,
+  saveBriefStructured,
   saveDailyReport,
 } from './db/index.js';
 
@@ -190,6 +194,9 @@ app.post('/api/news/generate', handle(async (req, res) => {
         newsJobs.set(date, { status: 'error', error: 'No block trades were recorded for this day.', at: Date.now() });
       } else {
         await saveDailyReport({ date, content: out.content, model: config.news.model, generatedAt: Date.now() });
+        if (out.structured) {
+          await saveBriefStructured(date, out.structured.themes, out.structured.ideas).catch((e) => console.error('save structured failed', e.message));
+        }
         newsJobs.delete(date); // result now lives in the DB
       }
     } catch (err) {
@@ -198,6 +205,27 @@ app.post('/api/news/generate', handle(async (req, res) => {
     }
   })();
   res.status(202).json({ date, status: 'generating' });
+}));
+
+// ---- Knowledge base: themes & ideas accumulated from briefs ----
+const todayStr = () => new Date().toISOString().slice(0, 10);
+const shiftDay = (str, n) => {
+  const [y, m, d] = str.split('-').map(Number);
+  return new Date(Date.UTC(y, m - 1, d) - n * 86400000).toISOString().slice(0, 10);
+};
+
+app.get('/api/themes', handle(async (req, res) => {
+  const anchor = String(req.query.date || '').slice(0, 10) || todayStr();
+  const days = clamp(Number(req.query.days) || 30, 1, 180);
+  res.json(await getRecentThemes({ since: shiftDay(anchor, days), before: shiftDay(anchor, -1), limit: clamp(Number(req.query.limit) || 15, 1, 50) }));
+}));
+
+app.get('/api/ideas', handle(async (req, res) => {
+  const ticker = req.query.ticker ? String(req.query.ticker).trim().toUpperCase() : '';
+  if (ticker) return res.json(await getIdeasByTicker(ticker, clamp(Number(req.query.limit) || 20, 1, 100)));
+  const anchor = String(req.query.date || '').slice(0, 10) || todayStr();
+  const days = clamp(Number(req.query.days) || 30, 1, 180);
+  res.json(await getRecentIdeas({ since: shiftDay(anchor, days), before: shiftDay(anchor, -1), limit: clamp(Number(req.query.limit) || 60, 1, 200) }));
 }));
 
 // ---- Static frontend ----

@@ -513,6 +513,27 @@ th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; ver
 .md a { color: var(--accent); text-decoration: none; border-bottom: 1px solid rgba(47,143,255,0.4); }
 .md a:hover { border-bottom-color: var(--accent); }
 
+/* Knowledge base tracker */
+.kb { margin-bottom: 16px; border: 1px solid var(--border); border-radius: 12px; background: rgba(155,123,255,0.05); }
+.kb > summary { cursor: pointer; padding: 11px 14px; font-weight: 700; font-size: 12.5px; color: var(--violet); list-style: none; }
+.kb > summary::-webkit-details-marker { display: none; }
+.kb > summary::before { content: '▸ '; }
+.kb[open] > summary::before { content: '▾ '; }
+.kb-themes { display: flex; flex-wrap: wrap; gap: 7px; padding: 4px 14px 12px; }
+.kb-theme { font-size: 11.5px; padding: 4px 10px; border-radius: 999px; background: rgba(155,123,255,0.12);
+  border: 1px solid rgba(155,123,255,0.3); color: var(--text); }
+.kb-theme b { color: var(--violet); }
+.kb-ideas { padding: 0 14px 12px; display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+@media (max-width: 760px) { .kb-ideas { grid-template-columns: 1fr; } }
+.kb-idea { background: var(--panel); border: 1px solid var(--border); border-radius: 9px; padding: 8px 10px; font-size: 12px; }
+.kb-idea .ticker { font-weight: 800; }
+.kb-bias { font-size: 10px; font-weight: 800; padding: 1px 7px; border-radius: 5px; margin-left: 6px; text-transform: uppercase; }
+.kb-bias.bullish { color: var(--green); background: rgba(43,212,160,0.14); }
+.kb-bias.bearish { color: var(--red); background: rgba(255,93,108,0.14); }
+.kb-bias.neutral { color: var(--text-dim); background: rgba(126,146,180,0.14); }
+.kb-date { float: right; color: var(--text-faint); font-family: var(--mono); font-size: 10.5px; }
+.kb-thesis { margin-top: 4px; color: var(--text-dim); line-height: 1.45; }
+
 /* ---- Chart modal ---- */
 .chart-modal { position: fixed; inset: 0; z-index: 80; display: grid; place-items: center; }
 .chart-backdrop { position: absolute; inset: 0; background: rgba(3,6,13,0.72); backdrop-filter: blur(4px); }
