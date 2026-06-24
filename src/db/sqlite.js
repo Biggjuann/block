@@ -36,6 +36,7 @@ const startOfTodayMs = () => {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 };
+const MAX = Number.MAX_SAFE_INTEGER;
 
 export async function insertBlockTrade(t) {
   const info = db
@@ -50,18 +51,19 @@ export async function insertBlockTrade(t) {
   return info.lastInsertRowid;
 }
 
-export async function getTopTrades({ since = startOfTodayMs(), limit = 12 } = {}) {
+export async function getTopTrades({ since = startOfTodayMs(), until = MAX, limit = 12 } = {}) {
   return db
     .prepare(
       `SELECT ticker, COUNT(*) AS trades, SUM(size) AS volume, SUM(value) AS value,
               MAX(traded_at) AS last_at,
               (SELECT price FROM block_trades b2 WHERE b2.ticker = b1.ticker
+                 AND b2.traded_at >= ? AND b2.traded_at < ?
                  ORDER BY traded_at DESC LIMIT 1) AS price
          FROM block_trades b1
-        WHERE traded_at >= ?
+        WHERE traded_at >= ? AND traded_at < ?
         GROUP BY ticker ORDER BY value DESC LIMIT ?`
     )
-    .all(since, limit);
+    .all(since, until, since, until, limit);
 }
 
 export async function getRecentPrints({ minSize = config.printMinSize, limit = 30 } = {}) {
@@ -82,31 +84,31 @@ export async function getRecentBlockTrades({ minSize = config.blockMinSize, limi
     .all(minSize, limit);
 }
 
-export async function getStats({ since = startOfTodayMs() } = {}) {
+export async function getStats({ since = startOfTodayMs(), until = MAX } = {}) {
   return db
     .prepare(
       `SELECT COUNT(*) AS trades, COALESCE(SUM(value),0) AS value, COALESCE(SUM(size),0) AS volume
-         FROM block_trades WHERE traded_at >= ?`
+         FROM block_trades WHERE traded_at >= ? AND traded_at < ?`
     )
-    .get(since);
+    .get(since, until);
 }
 
 // Net buy/sell pressure per ticker: aggressive buys (Above/At Ask) vs
 // aggressive sells (Below/At Bid), by notional.
-export async function getPressure({ since = startOfTodayMs(), limit = 14 } = {}) {
+export async function getPressure({ since = startOfTodayMs(), until = MAX, limit = 14 } = {}) {
   const rows = db
     .prepare(
       `SELECT ticker,
               SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END) AS buyValue,
               SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END) AS sellValue,
               COUNT(*) AS trades
-         FROM block_trades WHERE traded_at >= ?
+         FROM block_trades WHERE traded_at >= ? AND traded_at < ?
         GROUP BY ticker
         ORDER BY ABS(SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END)
                    - SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END)) DESC
         LIMIT ?`
     )
-    .all(since, limit);
+    .all(since, until, limit);
   return rows.map((r) => ({ ...r, net: r.buyValue - r.sellValue }));
 }
 

@@ -66,6 +66,17 @@ const handle = (fn) => (req, res) =>
     res.status(500).json({ error: 'query failed' });
   });
 
+const startOfTodayMs = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
+
+// Optional day window (epoch ms) so the dashboard can snapshot any single day.
+const dayWindow = (q) => {
+  const from = Number(q.from), to = Number(q.to);
+  return {
+    since: Number.isFinite(from) ? from : startOfTodayMs(),
+    until: Number.isFinite(to) ? to : Number.MAX_SAFE_INTEGER,
+  };
+};
+
 app.get('/api/recent', handle(async (req, res) => {
   const limit = clamp(Number(req.query.limit) || 300, 1, 1000);
   res.json(await getRecentBlockTrades({ limit }));
@@ -73,28 +84,35 @@ app.get('/api/recent', handle(async (req, res) => {
 
 app.get('/api/top', handle(async (req, res) => {
   const limit = clamp(Number(req.query.limit) || 12, 1, 50);
-  res.json(await getTopTrades({ limit }));
+  res.json(await getTopTrades({ ...dayWindow(req.query), limit }));
 }));
 
 app.get('/api/prints', handle(async (req, res) => {
   const limit = clamp(Number(req.query.limit) || 30, 1, 200);
+  // Day-windowed feed when from/to given; otherwise the live recent feed.
+  if (req.query.from || req.query.to) {
+    const { since, until } = dayWindow(req.query);
+    const { rows } = await queryHistory({
+      from: since, to: until - 1, minSize: config.printMinSize, sort: 'traded_at', order: 'desc', limit,
+    });
+    return res.json(rows);
+  }
   res.json(await getRecentPrints({ limit }));
 }));
 
-app.get('/api/stats', handle(async (_req, res) => res.json(await getStats())));
+app.get('/api/stats', handle(async (req, res) => res.json(await getStats(dayWindow(req.query)))));
 
-const startOfTodayMs = () => { const d = new Date(); d.setHours(0, 0, 0, 0); return d.getTime(); };
-
-// Largest individual block prints today, ranked by notional value (not summed).
+// Largest individual block prints for the window, ranked by notional (not summed).
 app.get('/api/top-prints', handle(async (req, res) => {
   const limit = clamp(Number(req.query.limit) || 25, 1, 100);
-  const { rows } = await queryHistory({ from: startOfTodayMs(), sort: 'value', order: 'desc', limit });
+  const { since, until } = dayWindow(req.query);
+  const { rows } = await queryHistory({ from: since, to: until - 1, sort: 'value', order: 'desc', limit });
   res.json(rows);
 }));
 
 app.get('/api/pressure', handle(async (req, res) => {
   const limit = clamp(Number(req.query.limit) || 14, 1, 50);
-  res.json(await getPressure({ limit }));
+  res.json(await getPressure({ ...dayWindow(req.query), limit }));
 }));
 
 app.get('/api/chart', handle(async (req, res) => {

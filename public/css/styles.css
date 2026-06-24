@@ -221,6 +221,16 @@ tr.flash { animation: flashin 0.7s ease; }
 }
 @media (max-width: 1000px) { .dash { grid-template-columns: 1fr; } }
 
+.dash-controls {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 12px; flex-wrap: wrap; margin-bottom: 14px;
+}
+.dash-controls .tabs { margin-bottom: 0; }
+.date-nav { display: flex; align-items: center; gap: 6px; }
+.date-nav input[type=date] { color-scheme: dark; font-family: var(--mono); font-size: 12px; }
+.date-nav .ghost-btn.sm { padding: 6px 10px; }
+.date-nav.snapshot input[type=date] { border-color: var(--amber); color: var(--amber); }
+
 .tabs {
   display: flex; gap: 6px; flex-wrap: wrap;
   margin-bottom: 14px;

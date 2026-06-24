@@ -6,6 +6,7 @@ let activeTab = 'top';
 let topData = [];
 let pressureData = [];
 let bigPrints = [];
+let dateLabel = 'today';
 const PRINT_MIN = 400000;
 const printsBody = document.getElementById('prints-body');
 const mainPanel = document.getElementById('main-panel');
@@ -71,7 +72,7 @@ function renderTop() {
 
   mainPanel.innerHTML = `
     <section class="panel">
-      <div class="panel-head"><h2>Top Trades</h2><span class="hint">by notional value · today</span></div>
+      <div class="panel-head"><h2>Top Trades</h2><span class="hint">by notional value · ${dateLabel}</span></div>
       <div class="top-layout">
         <div class="bars">${bars || emptyMsg()}</div>
         <div class="table-wrap">
@@ -103,7 +104,7 @@ function renderBigPrints() {
   mainPanel.innerHTML = `
     <section class="panel">
       <div class="panel-head"><h2>Biggest Trades</h2>
-        <span class="hint">largest individual prints · today · by notional</span></div>
+        <span class="hint">largest individual prints · ${dateLabel} · by notional</span></div>
       <div class="table-wrap" style="max-height:calc(100vh - 180px)">
         <table class="sortable" data-sort-key="bigprints" data-rank-col="0">
           <thead><tr><th>#</th><th>Time</th><th>Ticker</th><th class="num">Price</th>
@@ -135,7 +136,7 @@ function renderPressure() {
   mainPanel.innerHTML = `
     <section class="panel">
       <div class="panel-head"><h2>Net Buy / Sell Pressure</h2>
-        <span class="hint">aggressor side · today · <span style="color:var(--green)">▲ buy</span> / <span style="color:var(--red)">sell ▼</span></span></div>
+        <span class="hint">aggressor side · ${dateLabel} · <span style="color:var(--green)">▲ buy</span> / <span style="color:var(--red)">sell ▼</span></span></div>
       <div class="pressure-list">${rows || emptyMsg()}</div>
     </section>`;
 }
@@ -155,7 +156,7 @@ function renderVolume() {
     .join('');
   mainPanel.innerHTML = `
     <section class="panel">
-      <div class="panel-head"><h2>Volume Leaders</h2><span class="hint">block share volume · today</span></div>
+      <div class="panel-head"><h2>Volume Leaders</h2><span class="hint">block share volume · ${dateLabel}</span></div>
       <div class="bars">${bars || emptyMsg()}</div>
     </section>`;
 }
@@ -233,7 +234,7 @@ function foldTrade(t) {
 
 async function refreshStats() {
   try {
-    const s = await api('/api/stats');
+    const s = await api(`/api/stats?${dayQS()}`);
     document.getElementById('stat-trades').textContent = fmt.int(s.trades);
     document.getElementById('stat-value').textContent = fmt.money(s.value);
   } catch { /* ignore */ }
@@ -245,41 +246,87 @@ function maybeRender() {
   if (now - lastRender > 1200) { lastRender = now; renderMain(); }
 }
 
+// ---- Date selection ----
+const startOfLocalDay = (d) => { const x = new Date(d); x.setHours(0, 0, 0, 0); return x; };
+let selectedDate = startOfLocalDay(new Date());
+function dayBounds() { const from = selectedDate.getTime(); return { from, to: from + 86400000 }; }
+function dayQS() { const { from, to } = dayBounds(); return `from=${from}&to=${to}`; }
+function isTodaySelected() { return selectedDate.getTime() === startOfLocalDay(new Date()).getTime(); }
+const toInputValue = (d) =>
+  `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+async function loadDay() {
+  const qs = dayQS();
+  try {
+    [topData, pressureData, bigPrints] = await Promise.all([
+      api(`/api/top?limit=18&${qs}`), api(`/api/pressure?limit=16&${qs}`), api(`/api/top-prints?limit=30&${qs}`),
+    ]);
+  } catch { topData = []; pressureData = []; bigPrints = []; }
+  printsBody.innerHTML = ''; printRows = 0;
+  document.getElementById('prints-count').textContent = '--';
+  try {
+    const prints = await api(`/api/prints?limit=60&${qs}`);
+    prints.reverse().forEach((p) => addPrint(p, false));
+  } catch { /* ignore */ }
+  renderMain(false);
+  refreshStats();
+}
+
+function setDate(d) {
+  const today = startOfLocalDay(new Date());
+  selectedDate = startOfLocalDay(d);
+  if (selectedDate > today) selectedDate = today; // no future dates
+  document.getElementById('day-date').value = toInputValue(selectedDate);
+  dateLabel = isTodaySelected()
+    ? 'today'
+    : selectedDate.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+  document.querySelector('.date-nav').classList.toggle('snapshot', !isTodaySelected());
+  document.getElementById('day-next').disabled = isTodaySelected();
+  loadDay();
+}
+
+function wireDateNav() {
+  const shift = (days) => setDate(new Date(selectedDate.getTime() + days * 86400000));
+  document.getElementById('day-prev').addEventListener('click', () => shift(-1));
+  document.getElementById('day-next').addEventListener('click', () => shift(1));
+  document.getElementById('day-today').addEventListener('click', () => setDate(new Date()));
+  document.getElementById('day-date').addEventListener('change', (e) => {
+    if (!e.target.value) return;
+    const [y, m, d] = e.target.value.split('-').map(Number);
+    setDate(new Date(y, m - 1, d));
+  });
+}
+
 async function init() {
   try {
     const cfg = await api('/api/config');
     setStatus(cfg.status);
   } catch { /* ignore */ }
 
-  try {
-    [topData, pressureData, bigPrints] = await Promise.all([
-      api('/api/top?limit=18'), api('/api/pressure?limit=16'), api('/api/top-prints?limit=30'),
-    ]);
-  } catch { topData = []; pressureData = []; bigPrints = []; }
-
-  try {
-    const prints = await api('/api/prints?limit=40');
-    prints.reverse().forEach((p) => addPrint(p, false));
-  } catch { /* ignore */ }
-
-  renderMain();
   enableTickerClicks();
   initSortable();
-  refreshStats();
-  setInterval(refreshStats, 5000);
+  wireDateNav();
   setMarketBadge();
   setInterval(setMarketBadge, 30000);
+
+  setDate(new Date()); // loads today's snapshot
+
+  // Refresh the live (today) snapshot periodically; past days are static.
   setInterval(async () => {
+    if (!isTodaySelected()) return;
+    const qs = dayQS();
     try {
       [topData, pressureData, bigPrints] = await Promise.all([
-        api('/api/top?limit=18'), api('/api/pressure?limit=16'), api('/api/top-prints?limit=30'),
+        api(`/api/top?limit=18&${qs}`), api(`/api/pressure?limit=16&${qs}`), api(`/api/top-prints?limit=30&${qs}`),
       ]);
       renderMain();
     } catch { /* ignore */ }
   }, 15000);
+  setInterval(() => { if (isTodaySelected()) refreshStats(); }, 5000);
 
   connectWS((msg) => {
     if (msg.type === 'trade') {
+      if (!isTodaySelected()) return; // don't mutate a historical snapshot
       foldTrade(msg.trade);
       foldBigPrint(msg.trade);
       addPrint(msg.trade);

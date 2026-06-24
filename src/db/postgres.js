@@ -40,6 +40,7 @@ const startOfTodayMs = () => {
   d.setHours(0, 0, 0, 0);
   return d.getTime();
 };
+const MAX = Number.MAX_SAFE_INTEGER;
 
 // Postgres BIGINT comes back as a string; coerce numeric columns for the API.
 function coerce(r) {
@@ -63,16 +64,17 @@ export async function insertBlockTrade(t) {
   return r.rows[0].id;
 }
 
-export async function getTopTrades({ since = startOfTodayMs(), limit = 12 } = {}) {
+export async function getTopTrades({ since = startOfTodayMs(), until = MAX, limit = 12 } = {}) {
   const r = await pool.query(
     `SELECT ticker, COUNT(*)::int AS trades, SUM(size)::bigint AS volume, SUM(value) AS value,
             MAX(traded_at) AS last_at,
             (SELECT price FROM block_trades b2 WHERE b2.ticker = b1.ticker
+               AND b2.traded_at >= $1 AND b2.traded_at < $2
                ORDER BY traded_at DESC LIMIT 1) AS price
        FROM block_trades b1
-      WHERE traded_at >= $1
-      GROUP BY ticker ORDER BY value DESC LIMIT $2`,
-    [since, limit]
+      WHERE traded_at >= $1 AND traded_at < $2
+      GROUP BY ticker ORDER BY value DESC LIMIT $3`,
+    [since, until, limit]
   );
   return r.rows.map((x) => ({
     ticker: x.ticker, trades: Number(x.trades), volume: Number(x.volume),
@@ -98,28 +100,28 @@ export async function getRecentBlockTrades({ minSize, limit = 300 } = {}) {
   return r.rows.map(coerce);
 }
 
-export async function getStats({ since = startOfTodayMs() } = {}) {
+export async function getStats({ since = startOfTodayMs(), until = MAX } = {}) {
   const r = await pool.query(
     `SELECT COUNT(*)::int AS trades, COALESCE(SUM(value),0) AS value, COALESCE(SUM(size),0)::bigint AS volume
-       FROM block_trades WHERE traded_at >= $1`,
-    [since]
+       FROM block_trades WHERE traded_at >= $1 AND traded_at < $2`,
+    [since, until]
   );
   const row = r.rows[0];
   return { trades: Number(row.trades), value: Number(row.value), volume: Number(row.volume) };
 }
 
-export async function getPressure({ since = startOfTodayMs(), limit = 14 } = {}) {
+export async function getPressure({ since = startOfTodayMs(), until = MAX, limit = 14 } = {}) {
   const r = await pool.query(
     `SELECT ticker,
             SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END) AS buy_value,
             SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END) AS sell_value,
             COUNT(*)::int AS trades
-       FROM block_trades WHERE traded_at >= $1
+       FROM block_trades WHERE traded_at >= $1 AND traded_at < $2
       GROUP BY ticker
       ORDER BY ABS(SUM(CASE WHEN bid_ask IN ('Above Ask','At Ask') THEN value ELSE 0 END)
                  - SUM(CASE WHEN bid_ask IN ('Below Bid','At Bid') THEN value ELSE 0 END)) DESC
-      LIMIT $2`,
-    [since, limit]
+      LIMIT $3`,
+    [since, until, limit]
   );
   return r.rows.map((x) => {
     const buyValue = Number(x.buy_value);
