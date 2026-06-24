@@ -47,10 +47,6 @@ function renderMain(preserveScroll = true) {
   else if (activeTab === 'premarket') renderVolume();
   else if (activeTab === 'heatmap') renderHeatmap();
   else if (activeTab === 'news') renderNews();
-  else if (activeTab === 'earnings') renderSoon('Earnings Calendar', '📅',
-    'Upcoming earnings ranked by block-flow interest. Connect a fundamentals feed to populate this view.');
-  else if (activeTab === 'exdiv') renderSoon('Ex-Dividend', '💸',
-    'Stocks going ex-dividend, cross-referenced with block activity. Requires a corporate-actions feed.');
   if (preserveScroll && prev) {
     const sc = mainPanel.querySelector(SCROLLERS);
     if (sc) sc.scrollTop = prev;
@@ -260,14 +256,6 @@ function renderHeatmap() {
     <section class="panel">
       <div class="panel-head"><h2>Flow Heatmap</h2><span class="hint">sized by notional value</span></div>
       <div class="heatmap">${cells || emptyMsg()}</div>
-    </section>`;
-}
-
-function renderSoon(title, icon, desc) {
-  mainPanel.innerHTML = `
-    <section class="panel">
-      <div class="panel-head"><h2>${title}</h2></div>
-      <div class="coming"><div class="big">${icon}</div><div>${desc}</div></div>
     </section>`;
 }
 
