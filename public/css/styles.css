@@ -571,6 +571,21 @@ th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; ver
   margin-left: auto; font-family: var(--mono); font-weight: 800; font-size: 13px; color: #fff;
   background: rgba(47,143,255,0.16); border: 1px solid var(--border); border-radius: 7px; padding: 2px 9px;
 }
+.setup-trail { display: flex; align-items: center; gap: 9px; margin-top: 9px; }
+.setup-cont {
+  font-size: 9.5px; font-weight: 800; text-transform: uppercase; letter-spacing: .4px;
+  padding: 2px 7px; border-radius: 5px; color: var(--text-dim); background: rgba(126,146,180,0.14);
+  white-space: nowrap;
+}
+.setup-cont.building { color: var(--green); background: rgba(43,212,160,0.14); }
+.setup-cont.persisting { color: var(--accent); background: rgba(47,143,255,0.14); }
+.setup-cont.flipping { color: var(--amber); background: rgba(242,177,78,0.16); }
+.d-dots { display: flex; align-items: center; gap: 4px; }
+.d-dot { width: 9px; height: 9px; border-radius: 50%; background: var(--text-faint); }
+.d-dot.buy { background: var(--green); }
+.d-dot.sell { background: var(--red); }
+.d-dot.flat { background: var(--text-faint); }
+
 .setup-desc { margin: 9px 0 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
 
 .lvl-gauge { margin-bottom: 12px; }

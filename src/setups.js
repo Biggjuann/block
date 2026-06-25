@@ -72,6 +72,24 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
     const sellNotional = outliers.filter((p) => isSell(p.bidAsk)).reduce((a, p) => a + p.value, 0);
     const outlierNotional = outliers.reduce((a, p) => a + p.value, 0);
 
+    // Break the unusual flow down by calendar day so we can see whether the
+    // bullish/bearish bias is building across days, persisting from prior days,
+    // or being flipped today — i.e. track conviction from previous big trades.
+    const dayMap = new Map();
+    for (const p of outliers) {
+      const b = Math.floor(p.tradedAt / 86400000); // UTC-day bucket
+      let g = dayMap.get(b);
+      if (!g) { g = { b, buy: 0, sell: 0 }; dayMap.set(b, g); }
+      if (isBuy(p.bidAsk)) g.buy += p.value;
+      else if (isSell(p.bidAsk)) g.sell += p.value;
+    }
+    const days = [...dayMap.values()].sort((a, c) => a.b - c.b).map((g) => ({
+      date: new Date(g.b * 86400000).toISOString().slice(0, 10),
+      net: g.buy - g.sell,
+      notional: g.buy + g.sell,
+    }));
+    const daysActive = days.length;
+
     // Current price proxy: the ticker's most recent print in the window.
     const last = prints[0];
     const lastPrice = last.price;
@@ -106,11 +124,40 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
       else { watch = true; setup = 'Aggressive block selling — price extended above their level (overhead supply / fade risk)'; }
     }
 
+    // ---- Multi-day continuity: how prior days' big trades relate to today ----
+    // building   = prior days AND the latest day agree with the overall bias
+    // persisting = prior days set the bias; the latest day is quiet/opposite
+    // flipping   = the latest day reversed a prior multi-day bias
+    // new        = only one day of unusual flow so far
+    const biasSign = buyNotional >= sellNotional ? 1 : -1;
+    let continuity = 'new';
+    let priorAligned = 0;
+    if (daysActive > 1) {
+      const prior = days.slice(0, -1);
+      const latest = days[days.length - 1];
+      const priorNet = prior.reduce((a, s) => a + s.net, 0);
+      priorAligned = prior.filter((s) => Math.sign(s.net) === biasSign).length;
+      if (Math.sign(priorNet) === biasSign) {
+        continuity = Math.sign(latest.net) === biasSign ? 'building' : 'persisting';
+      } else {
+        continuity = 'flipping';
+      }
+    }
+    if (bias !== 'mixed' && daysActive > 1) {
+      const tail = continuity === 'building' ? `block ${dominantBuy ? 'buying' : 'selling'} building across ${daysActive} days`
+        : continuity === 'persisting' ? `prior ${daysActive}-day ${dominantBuy ? 'buying' : 'selling'} bias persisting`
+        : `today flips a prior multi-day ${dominantBuy ? 'selling' : 'buying'} bias`;
+      setup += ` · ${tail}`;
+    }
+
     // ---- Strength score (0-100) for ranking ----
     const notionalScore = Math.min(50, Math.round(Math.log10(outlierNotional / 1e6 + 1) * 28));
     const convictionScore = Math.round(conviction * 30);
     const alignment = bias === 'mixed' ? 0 : watch ? 8 : 20;
-    const score = Math.min(100, notionalScore + convictionScore + alignment);
+    // Reward multi-day persistence; gently dock a same-day-only flip.
+    const continuityBonus = continuity === 'building' ? 15 : continuity === 'persisting' ? 8 : continuity === 'flipping' ? -4 : 0;
+    const daysBonus = Math.min(12, (daysActive - 1) * 4);
+    const score = Math.max(0, Math.min(100, notionalScore + convictionScore + alignment + continuityBonus + daysBonus));
 
     setups.push({
       ticker,
@@ -125,6 +172,9 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
       outlierNotional,
       buyNotional,
       sellNotional,
+      daysActive,
+      continuity,
+      days, // per-day net flow, oldest→newest (for the multi-day trail)
       maxPctADV: maxPctADV != null ? Math.round(maxPctADV * 10) / 10 : null,
       biggest: {
         price: biggest.price,

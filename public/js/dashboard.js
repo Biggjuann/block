@@ -159,12 +159,20 @@ function setupCard(s) {
   const markPct = 50 + Math.max(-48, Math.min(48, (s.distPct / 15) * 48));
   const adv = s.maxPctADV != null ? ` · up to <span class="${pctAdvClass(s.maxPctADV)}" style="padding:0 4px;border-radius:4px">${s.maxPctADV}% ADV</span>` : '';
   const b = s.biggest;
+  // Multi-day trail: one dot per active day (oldest→newest), green = net buying.
+  const trail = (s.days || []).slice(-8).map((d) =>
+    `<i class="d-dot ${d.net > 0 ? 'buy' : d.net < 0 ? 'sell' : 'flat'}" title="${d.date}: ${d.net >= 0 ? '+' : '−'}${fmt.money(Math.abs(d.net))} net"></i>`).join('');
+  const contLabel = { building: 'Building', persisting: 'Persisting', flipping: 'Flipping', new: 'New' }[s.continuity] || '';
+  const cont = s.daysActive > 1
+    ? `<span class="setup-cont ${s.continuity}" title="how prior days' big trades relate to today">${contLabel} · ${s.daysActive}d</span>`
+    : `<span class="setup-cont new" title="first day of unusual flow">New · 1d</span>`;
   return `<div class="setup-card ${s.bias}${s.watch ? ' watch' : ''}">
     <div class="setup-top">
       <span class="ticker setup-sym">${s.ticker}</span>
       <span class="setup-bias ${s.bias}">${biasLabel}${s.watch ? ' · watch' : ''}</span>
       <span class="setup-score" title="setup strength">${s.score}</span>
     </div>
+    <div class="setup-trail">${cont}<span class="d-dots">${trail}</span></div>
     <div class="setup-desc">${s.setup}</div>
     <div class="lvl-gauge">
       <div class="lvl-track">
