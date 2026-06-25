@@ -152,11 +152,7 @@ function renderSetups() {
 }
 
 function setupCard(s) {
-  const sign = s.distPct > 0 ? '+' : '';
-  const distCls = s.distPct > 0 ? 'pos' : s.distPct < 0 ? 'neg' : '';
   const biasLabel = s.bias === 'bullish' ? 'Bullish' : s.bias === 'bearish' ? 'Bearish' : 'Mixed';
-  // Gauge: center tick = block level; marker offset by distance (clamped ±15%).
-  const markPct = 50 + Math.max(-48, Math.min(48, (s.distPct / 15) * 48));
   const adv = s.maxPctADV != null ? ` · up to <span class="${pctAdvClass(s.maxPctADV)}" style="padding:0 4px;border-radius:4px">${s.maxPctADV}% ADV</span>` : '';
   const b = s.biggest;
   // Multi-day trail: one dot per active day (oldest→newest), green = net buying.
@@ -166,6 +162,15 @@ function setupCard(s) {
   const cont = s.daysActive > 1
     ? `<span class="setup-cont ${s.continuity}" title="how prior days' big trades relate to today">${contLabel} · ${s.daysActive}d</span>`
     : `<span class="setup-cont new" title="first day of unusual flow">New · 1d</span>`;
+
+  // Supply/support structure: block volume above vs below the current price.
+  const above = s.aboveNotional || 0;
+  const below = s.belowNotional || 0;
+  const tot = above + below || 1;
+  const belowPct = (below / tot) * 100;
+  const supplyTxt = above > 0 ? `${fmt.money(above)}${s.aboveVwap ? ` @ ~${fmt.price(s.aboveVwap)}` : ''}` : 'none';
+  const supportTxt = below > 0 ? `${fmt.money(below)}${s.belowVwap ? ` @ ~${fmt.price(s.belowVwap)}` : ''}` : 'none';
+
   return `<div class="setup-card ${s.bias}${s.watch ? ' watch' : ''}">
     <div class="setup-top">
       <span class="ticker setup-sym">${s.ticker}</span>
@@ -174,17 +179,13 @@ function setupCard(s) {
     </div>
     <div class="setup-trail">${cont}<span class="d-dots">${trail}</span></div>
     <div class="setup-desc">${s.setup}</div>
-    <div class="lvl-gauge">
-      <div class="lvl-track">
-        <div class="lvl-zero"></div>
-        <div class="lvl-mark ${distCls}" style="left:${markPct}%"></div>
+    <div class="sg-gauge">
+      <div class="sg-track">
+        <div class="sg-below" style="width:${belowPct}%"></div>
+        <div class="sg-above" style="width:${100 - belowPct}%"></div>
+        <div class="sg-now" style="left:${belowPct}%"><span>now ${fmt.price(s.lastPrice)}</span></div>
       </div>
-      <div class="lvl-cap"><span>← below level</span><span>block level</span><span>above level →</span></div>
-    </div>
-    <div class="setup-levels">
-      <div><span class="lbl">Last</span><span class="v">${fmt.price(s.lastPrice)}</span></div>
-      <div><span class="lbl">Block level</span><span class="v">${fmt.price(s.keyLevel)}</span></div>
-      <div><span class="lbl">vs level</span><span class="v ${distCls}">${sign}${s.distPct}%</span></div>
+      <div class="sg-cap"><span class="sg-sup">▼ support below: ${supportTxt}</span><span class="sg-sly">overhead supply: ${supplyTxt} ▲</span></div>
     </div>
     <div class="setup-meta">${s.outlierCount} unusual print${s.outlierCount > 1 ? 's' : ''} · ${fmt.money(s.outlierNotional)}${adv}</div>
     <div class="setup-biggest">Largest: <b>${fmt.money(b.value)}</b> · ${fmt.int(b.size)} sh @ ${fmt.price(b.price)}

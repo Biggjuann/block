@@ -4,20 +4,13 @@ import { queryHistory } from './db/index.js';
 // Aggressor-side helpers (matches the bid/ask classification we store).
 const isBuy = (ba) => ba === 'Above Ask' || ba === 'At Ask';
 const isSell = (ba) => ba === 'At Bid' || ba === 'Below Bid';
-
-const mean = (xs) => (xs.length ? xs.reduce((a, b) => a + b, 0) / xs.length : 0);
-const median = (xs) => {
-  if (!xs.length) return 0;
-  const s = [...xs].sort((a, b) => a - b);
-  const m = s.length >> 1;
-  return s.length % 2 ? s[m] : (s[m - 1] + s[m]) / 2;
-};
-const stddev = (xs, mu) => (xs.length ? Math.sqrt(mean(xs.map((x) => (x - mu) ** 2))) : 0);
+const r2 = (n) => Math.round(n * 100) / 100;
 
 /**
  * Find tickers whose recent flow contains abnormally large / unusual single
  * prints, then classify each as a bullish or bearish setup based on where the
- * current price sits relative to where those big trades occurred.
+ * current price sits relative to where those big trades printed — including the
+ * big trades from previous days, not just the anchor day.
  *
  * @param {object} o
  * @param {number} o.since  window start (epoch ms)
@@ -26,19 +19,27 @@ const stddev = (xs, mu) => (xs.length ? Math.sqrt(mean(xs.map((x) => (x - mu) **
  */
 export async function getSetups({ since, until, limit = 24 } = {}) {
   const cfg = config.setups;
-  const { rows } = await queryHistory({
-    from: since,
-    to: until - 1,
-    minSize: config.blockMinSize,
-    sort: 'traded_at',
-    order: 'desc',
-    limit: 8000,
-  });
-  if (!rows.length) return [];
 
-  // Group prints by ticker (rows arrive newest-first).
+  // (1) The big prints over the FULL window. Floor by notional so this returns
+  //     the large trades across all 10 days — sorting the whole tape by time and
+  //     capping rows would truncate the lookback to ~today on a busy universe,
+  //     hiding prior-day blocks (the bug where a name read "1 day / at level").
+  const { rows: big } = await queryHistory({
+    from: since, to: until - 1, minNotional: cfg.minNotional,
+    sort: 'value', order: 'desc', limit: 6000,
+  });
+  if (!big.length) return [];
+
+  // (2) Most-recent prints, for a current-price proxy per ticker.
+  const { rows: recent } = await queryHistory({
+    from: since, to: until - 1, sort: 'traded_at', order: 'desc', limit: 3000,
+  });
+  const lastByTicker = new Map();
+  for (const r of recent) if (!lastByTicker.has(r.ticker)) lastByTicker.set(r.ticker, r);
+
+  // Group the big prints by ticker.
   const byTicker = new Map();
-  for (const r of rows) {
+  for (const r of big) {
     let g = byTicker.get(r.ticker);
     if (!g) { g = []; byTicker.set(r.ticker, g); }
     g.push(r);
@@ -46,35 +47,76 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
 
   const setups = [];
   for (const [ticker, prints] of byTicker) {
-    const sizes = prints.map((p) => p.size);
-    const mu = mean(sizes);
-    const med = median(sizes);
-    const sd = stddev(sizes, mu);
-    const hasBaseline = prints.length >= cfg.minBaseline;
-
-    const unusual = (p) =>
-      p.value >= cfg.minNotional &&
-      (
-        (p.pctADV != null && p.pctADV >= cfg.pctAdvUnusual) ||
-        (hasBaseline && med > 0 && p.size >= cfg.medianMult * med) ||
-        (hasBaseline && sd > 0 && p.size >= mu + cfg.sigma * sd)
-      );
-
-    const outliers = prints.filter(unusual);
+    // "Unusual" = clears the notional floor AND, where we have ADV, is a large
+    // share of average daily volume. (All `prints` already clear the floor.)
+    const outliers = prints.filter((p) => p.pctADV == null || p.pctADV >= cfg.pctAdvUnusual);
     if (!outliers.length) continue;
 
-    // Where the big trades printed: share-weighted average price of outliers.
+    const outlierNotional = outliers.reduce((a, p) => a + p.value, 0);
+    const buyNotional = outliers.filter((p) => isBuy(p.bidAsk)).reduce((a, p) => a + p.value, 0);
+    const sellNotional = outliers.filter((p) => isSell(p.bidAsk)).reduce((a, p) => a + p.value, 0);
+
+    // Where the big trades printed (share-weighted), for reference.
     const shares = outliers.reduce((a, p) => a + p.size, 0);
     const keyLevel = shares ? outliers.reduce((a, p) => a + p.price * p.size, 0) / shares : outliers[0].price;
 
-    // Aggressor balance among the unusual prints.
-    const buyNotional = outliers.filter((p) => isBuy(p.bidAsk)).reduce((a, p) => a + p.value, 0);
-    const sellNotional = outliers.filter((p) => isSell(p.bidAsk)).reduce((a, p) => a + p.value, 0);
-    const outlierNotional = outliers.reduce((a, p) => a + p.value, 0);
+    // Current price: most recent print (any size); fall back to newest big print.
+    const newest = prints.reduce((a, p) => (p.tradedAt > a.tradedAt ? p : a), prints[0]);
+    const lastRow = lastByTicker.get(ticker) || newest;
+    const lastPrice = lastRow.price;
 
-    // Break the unusual flow down by calendar day so we can see whether the
-    // bullish/bearish bias is building across days, persisting from prior days,
-    // or being flipped today — i.e. track conviction from previous big trades.
+    // ---- Structure: big trades above vs below the current price ----
+    // This is the heart of "where is price vs where the big trades occurred":
+    // blocks above current price are overhead supply; blocks below are support.
+    const band = 0.005; // ignore prints within ±0.5% of price (effectively "at")
+    let aboveNot = 0, belowNot = 0, atNot = 0, aSh = 0, bSh = 0, aShPx = 0, bShPx = 0;
+    for (const p of outliers) {
+      if (p.price > lastPrice * (1 + band)) { aboveNot += p.value; aSh += p.size; aShPx += p.price * p.size; }
+      else if (p.price < lastPrice * (1 - band)) { belowNot += p.value; bSh += p.size; bShPx += p.price * p.size; }
+      else atNot += p.value;
+    }
+    const aboveVwap = aSh ? r2(aShPx / aSh) : null;
+    const belowVwap = bSh ? r2(bShPx / bSh) : null;
+
+    // ---- Directional read ----
+    // Price position vs the big trades is the primary signal (this is literally
+    // "where is price vs where the large trades occurred"); aggressor flow
+    // refines it and flags conflicts.
+    // posConv: +1 = price above essentially all the block volume (support beneath);
+    //          -1 = price has dropped below the block volume (overhead supply).
+    // flowConv: +1 = the big prints were aggressive buying; -1 = aggressive selling.
+    const posDenom = aboveNot + belowNot + atNot || 1;
+    const posConv = (belowNot - aboveNot) / posDenom;
+    const flowConv = buyNotional + sellNotional > 0 ? (buyNotional - sellNotional) / (buyNotional + sellNotional) : 0;
+    const posBull = posConv > 0.2, posBear = posConv < -0.2;
+    const flowBuy = flowConv > 0.2, flowSell = flowConv < -0.2;
+
+    let bias = 'mixed';
+    let watch = false;
+    let setup;
+    if (posBull) {
+      bias = 'bullish';
+      watch = flowSell; // price above blocks, but those blocks were selling
+      setup = flowSell
+        ? 'Price holding above the block volume — earlier selling has been absorbed, support beneath'
+        : 'Price holding above the bulk of block volume — buyers in profit, support beneath';
+    } else if (posBear) {
+      bias = 'bearish';
+      watch = flowBuy; // price below blocks that were *buying* — buyers underwater
+      setup = flowBuy
+        ? 'Price has fallen below the block volume — big buyers now underwater, overhead supply'
+        : 'Price has fallen below the bulk of block volume — sellers in control, breaking lower';
+    } else if (flowBuy) {
+      bias = 'bullish'; watch = true;
+      setup = 'Price inside the block-volume zone — aggressor flow is net buying';
+    } else if (flowSell) {
+      bias = 'bearish'; watch = true;
+      setup = 'Price inside the block-volume zone — aggressor flow is net selling';
+    } else {
+      setup = 'Price within the block-volume zone — two-sided flow, no clear edge';
+    }
+
+    // ---- Multi-day continuity (prior days' big trades vs today) ----
     const dayMap = new Map();
     for (const p of outliers) {
       const b = Math.floor(p.tradedAt / 86400000); // UTC-day bucket
@@ -90,79 +132,37 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
     }));
     const daysActive = days.length;
 
-    // Current price proxy: the ticker's most recent print in the window.
-    const last = prints[0];
-    const lastPrice = last.price;
-    const distPct = keyLevel ? ((lastPrice - keyLevel) / keyLevel) * 100 : 0;
-
-    const biggest = outliers.reduce((a, p) => (p.value > a.value ? p : a), outliers[0]);
-    const maxPctADV = outliers.reduce((a, p) => (p.pctADV != null && p.pctADV > a ? p.pctADV : a), 0) || null;
-
-    // ---- Classify ----
-    const conviction = buyNotional + sellNotional > 0
-      ? Math.abs(buyNotional - sellNotional) / (buyNotional + sellNotional)
-      : 0;
-    const dominantBuy = buyNotional > sellNotional;
-    const dominantSell = sellNotional > buyNotional;
-    const above = lastPrice >= keyLevel;
-
-    let bias = 'mixed';
-    let watch = false;
-    let setup = 'Two-sided block interest — no clear edge';
-    if (conviction < 0.2) {
-      bias = 'mixed';
-      setup = above
-        ? 'Mixed blocks, price above the level — leaning constructive'
-        : 'Mixed blocks, price below the level — leaning heavy';
-    } else if (dominantBuy) {
-      bias = 'bullish';
-      if (above) setup = 'Aggressive block buying — price holding above their level (accumulation in control)';
-      else { watch = true; setup = 'Aggressive block buying — price pulled back below their level (potential support / re-load)'; }
-    } else if (dominantSell) {
-      bias = 'bearish';
-      if (!above) setup = 'Aggressive block selling — price below their level (distribution in control)';
-      else { watch = true; setup = 'Aggressive block selling — price extended above their level (overhead supply / fade risk)'; }
-    }
-
-    // ---- Multi-day continuity: how prior days' big trades relate to today ----
-    // building   = prior days AND the latest day agree with the overall bias
-    // persisting = prior days set the bias; the latest day is quiet/opposite
-    // flipping   = the latest day reversed a prior multi-day bias
-    // new        = only one day of unusual flow so far
-    const biasSign = buyNotional >= sellNotional ? 1 : -1;
+    const flowSign = buyNotional >= sellNotional ? 1 : -1;
     let continuity = 'new';
-    let priorAligned = 0;
     if (daysActive > 1) {
       const prior = days.slice(0, -1);
       const latest = days[days.length - 1];
       const priorNet = prior.reduce((a, s) => a + s.net, 0);
-      priorAligned = prior.filter((s) => Math.sign(s.net) === biasSign).length;
-      if (Math.sign(priorNet) === biasSign) {
-        continuity = Math.sign(latest.net) === biasSign ? 'building' : 'persisting';
+      if (Math.sign(priorNet) === flowSign) {
+        continuity = Math.sign(latest.net) === flowSign ? 'building' : 'persisting';
       } else {
         continuity = 'flipping';
       }
     }
-    if (bias !== 'mixed' && daysActive > 1) {
-      const tail = continuity === 'building' ? `block ${dominantBuy ? 'buying' : 'selling'} building across ${daysActive} days`
-        : continuity === 'persisting' ? `prior ${daysActive}-day ${dominantBuy ? 'buying' : 'selling'} bias persisting`
-        : `today flips a prior multi-day ${dominantBuy ? 'selling' : 'buying'} bias`;
+    if (daysActive > 1) {
+      const side = buyNotional >= sellNotional ? 'buying' : 'selling';
+      const tail = continuity === 'building' ? `block ${side} building across ${daysActive} days`
+        : continuity === 'persisting' ? `prior ${daysActive}-day block ${side} persisting`
+        : `today flips a prior multi-day block ${side === 'buying' ? 'selling' : 'buying'} bias`;
       setup += ` · ${tail}`;
     }
 
-    // ---- Strength score (0-100) for ranking ----
-    // Calibrated so typical setups land in the 30s–70s and only a genuinely
-    // exceptional one (huge, one-sided, multi-day, very high %ADV) nears 100.
-    // The notional curve stays gentle so it doesn't peg at the top for every
-    // large-cap block, which made every card read ~100.
+    const biggest = outliers.reduce((a, p) => (p.value > a.value ? p : a), outliers[0]);
+    const maxPctADV = outliers.reduce((a, p) => (p.pctADV != null && p.pctADV > a ? p.pctADV : a), 0) || null;
+
+    // ---- Strength score (0-100) ----
+    const convict = Math.min(1, Math.abs(posConv) * 0.6 + Math.abs(flowConv) * 0.4);
     const notionalScore = Math.min(40, Math.round(Math.log10(outlierNotional / 1e6 + 1) * 16));
-    const convictionScore = Math.round(conviction * 20);
+    const dirScore = bias === 'mixed' ? 0 : Math.round(convict * 25);
     const advScore = Math.min(15, Math.round((maxPctADV || 0) * 2));
-    const alignment = bias === 'mixed' ? 0 : watch ? 4 : 10;
-    // Reward multi-day persistence; gently dock a same-day-only flip.
     const continuityBonus = continuity === 'building' ? 10 : continuity === 'persisting' ? 6 : continuity === 'flipping' ? -3 : 0;
     const daysBonus = Math.min(8, (daysActive - 1) * 3);
-    const score = Math.max(0, Math.min(100, notionalScore + convictionScore + advScore + alignment + continuityBonus + daysBonus));
+    const score = Math.max(0, Math.min(100, notionalScore + dirScore + advScore + continuityBonus + daysBonus));
 
     setups.push({
       ticker,
@@ -170,17 +170,21 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
       watch,
       setup,
       lastPrice,
-      lastAt: last.tradedAt,
-      keyLevel: Math.round(keyLevel * 100) / 100,
-      distPct: Math.round(distPct * 10) / 10,
+      lastAt: lastRow.tradedAt,
+      keyLevel: r2(keyLevel),
+      distPct: keyLevel ? r2(((lastPrice - keyLevel) / keyLevel) * 100) : 0,
+      aboveNotional: aboveNot,
+      belowNotional: belowNot,
+      aboveVwap,
+      belowVwap,
       outlierCount: outliers.length,
       outlierNotional,
       buyNotional,
       sellNotional,
       daysActive,
       continuity,
-      days, // per-day net flow, oldest→newest (for the multi-day trail)
-      maxPctADV: maxPctADV != null ? Math.round(maxPctADV * 10) / 10 : null,
+      days, // per-day net flow, oldest→newest (multi-day trail)
+      maxPctADV: maxPctADV != null ? r2(maxPctADV) : null,
       biggest: {
         price: biggest.price,
         size: biggest.size,

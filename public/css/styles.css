@@ -588,27 +588,26 @@ th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; ver
 
 .setup-desc { margin: 9px 0 12px; font-size: 12.5px; color: var(--text-dim); line-height: 1.45; }
 
-.lvl-gauge { margin-bottom: 12px; }
-.lvl-track {
-  position: relative; height: 8px; border-radius: 6px;
-  background: linear-gradient(90deg, rgba(255,93,108,0.18), rgba(126,146,180,0.12), rgba(43,212,160,0.18));
+/* Supply/support gauge: a tug-of-war between block volume below the current
+   price (support, green) and above it (overhead supply, red). */
+.sg-gauge { margin: 4px 0 12px; }
+.sg-track {
+  position: relative; display: flex; height: 12px; border-radius: 6px; overflow: visible;
+  background: rgba(126,146,180,0.1);
 }
-.lvl-zero { position: absolute; left: 50%; top: -3px; bottom: -3px; width: 2px; background: var(--text-dim); border-radius: 2px; }
-.lvl-mark {
-  position: absolute; top: 50%; width: 13px; height: 13px; border-radius: 50%;
-  transform: translate(-50%, -50%); border: 2px solid var(--panel-solid);
-  background: var(--text-dim); box-shadow: 0 0 8px rgba(0,0,0,0.5);
+.sg-below { background: linear-gradient(90deg, rgba(43,212,160,0.5), var(--green)); height: 100%; border-radius: 6px 0 0 6px; }
+.sg-above { background: linear-gradient(90deg, var(--red), rgba(255,93,108,0.5)); height: 100%; border-radius: 0 6px 6px 0; }
+.sg-now {
+  position: absolute; top: -4px; bottom: -4px; width: 2px; background: #fff;
+  transform: translateX(-1px); box-shadow: 0 0 6px rgba(255,255,255,0.6);
 }
-.lvl-mark.pos { background: var(--green); }
-.lvl-mark.neg { background: var(--red); }
-.lvl-cap { display: flex; justify-content: space-between; margin-top: 6px; font-size: 9.5px; color: var(--text-faint); }
-
-.setup-levels { display: grid; grid-template-columns: repeat(3, 1fr); gap: 8px; margin-bottom: 10px; }
-.setup-levels > div { display: flex; flex-direction: column; gap: 2px; }
-.setup-levels .lbl { font-size: 9.5px; text-transform: uppercase; letter-spacing: .4px; color: var(--text-faint); }
-.setup-levels .v { font-family: var(--mono); font-weight: 700; font-size: 13px; color: var(--text); }
-.setup-levels .v.pos { color: var(--green); }
-.setup-levels .v.neg { color: var(--red); }
+.sg-now span {
+  position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
+  font-family: var(--mono); font-size: 9px; color: var(--text); white-space: nowrap;
+}
+.sg-cap { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; font-family: var(--mono); }
+.sg-cap .sg-sup { color: var(--green); }
+.sg-cap .sg-sly { color: var(--red); }
 
 .setup-meta { font-size: 11.5px; color: var(--text-dim); margin-bottom: 6px; font-family: var(--mono); }
 .setup-biggest { font-size: 11px; color: var(--text-faint); font-family: var(--mono); line-height: 1.5; }
