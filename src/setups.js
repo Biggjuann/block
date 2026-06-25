@@ -151,13 +151,18 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
     }
 
     // ---- Strength score (0-100) for ranking ----
-    const notionalScore = Math.min(50, Math.round(Math.log10(outlierNotional / 1e6 + 1) * 28));
-    const convictionScore = Math.round(conviction * 30);
-    const alignment = bias === 'mixed' ? 0 : watch ? 8 : 20;
+    // Calibrated so typical setups land in the 30s–70s and only a genuinely
+    // exceptional one (huge, one-sided, multi-day, very high %ADV) nears 100.
+    // The notional curve stays gentle so it doesn't peg at the top for every
+    // large-cap block, which made every card read ~100.
+    const notionalScore = Math.min(40, Math.round(Math.log10(outlierNotional / 1e6 + 1) * 16));
+    const convictionScore = Math.round(conviction * 20);
+    const advScore = Math.min(15, Math.round((maxPctADV || 0) * 2));
+    const alignment = bias === 'mixed' ? 0 : watch ? 4 : 10;
     // Reward multi-day persistence; gently dock a same-day-only flip.
-    const continuityBonus = continuity === 'building' ? 15 : continuity === 'persisting' ? 8 : continuity === 'flipping' ? -4 : 0;
-    const daysBonus = Math.min(12, (daysActive - 1) * 4);
-    const score = Math.max(0, Math.min(100, notionalScore + convictionScore + alignment + continuityBonus + daysBonus));
+    const continuityBonus = continuity === 'building' ? 10 : continuity === 'persisting' ? 6 : continuity === 'flipping' ? -3 : 0;
+    const daysBonus = Math.min(8, (daysActive - 1) * 3);
+    const score = Math.max(0, Math.min(100, notionalScore + convictionScore + advScore + alignment + continuityBonus + daysBonus));
 
     setups.push({
       ticker,
