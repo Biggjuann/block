@@ -200,7 +200,10 @@ async function loadSetups() {
     setupsData = await api(`/api/setups?to=${dayBounds().to}&days=10&limit=30`);
   } catch { setupsData = []; }
   setupsLoaded = true;
-  if (activeTab === 'setups') renderMain(false);
+  // Preserve scroll: this also runs on the 15s auto-refresh, and resetting to
+  // the top there yanks the page back while you're reading. Tab-switch and
+  // day-change resets are handled by their own renderMain(false) calls.
+  if (activeTab === 'setups') renderMain(true);
 }
 
 function renderPressure() {
