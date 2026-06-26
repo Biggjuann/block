@@ -590,7 +590,11 @@ th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; ver
 
 /* Supply/support gauge: a tug-of-war between block volume below the current
    price (support, green) and above it (overhead supply, red). */
-.sg-gauge { margin: 4px 0 12px; }
+.sg-gauge { position: relative; margin: 6px 0 12px; padding-top: 16px; }
+.sg-nowlabel {
+  position: absolute; top: 0; transform: translateX(-50%);
+  font-family: var(--mono); font-size: 9.5px; color: var(--text); white-space: nowrap;
+}
 .sg-track {
   position: relative; display: flex; height: 12px; border-radius: 6px; overflow: visible;
   background: rgba(126,146,180,0.1);
@@ -601,11 +605,7 @@ th.sort-desc::after { content: ' ▼'; color: var(--accent); font-size: 8px; ver
   position: absolute; top: -4px; bottom: -4px; width: 2px; background: #fff;
   transform: translateX(-1px); box-shadow: 0 0 6px rgba(255,255,255,0.6);
 }
-.sg-now span {
-  position: absolute; top: -16px; left: 50%; transform: translateX(-50%);
-  font-family: var(--mono); font-size: 9px; color: var(--text); white-space: nowrap;
-}
-.sg-cap { display: flex; justify-content: space-between; margin-top: 8px; font-size: 10px; font-family: var(--mono); }
+.sg-cap { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 3px 10px; margin-top: 8px; font-size: 10px; font-family: var(--mono); }
 .sg-cap .sg-sup { color: var(--green); }
 .sg-cap .sg-sly { color: var(--red); }
 

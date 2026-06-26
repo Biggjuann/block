@@ -168,6 +168,7 @@ function setupCard(s) {
   const below = s.belowNotional || 0;
   const tot = above + below || 1;
   const belowPct = (below / tot) * 100;
+  const nowPos = Math.max(8, Math.min(92, belowPct)); // keep the price label on-card
   const supplyTxt = above > 0 ? `${fmt.money(above)}${s.aboveVwap ? ` @ ~${fmt.price(s.aboveVwap)}` : ''}` : 'none';
   const supportTxt = below > 0 ? `${fmt.money(below)}${s.belowVwap ? ` @ ~${fmt.price(s.belowVwap)}` : ''}` : 'none';
 
@@ -180,12 +181,13 @@ function setupCard(s) {
     <div class="setup-trail">${cont}<span class="d-dots">${trail}</span></div>
     <div class="setup-desc">${s.setup}</div>
     <div class="sg-gauge">
+      <div class="sg-nowlabel" style="left:${nowPos}%">now ${fmt.price(s.lastPrice)}</div>
       <div class="sg-track">
         <div class="sg-below" style="width:${belowPct}%"></div>
         <div class="sg-above" style="width:${100 - belowPct}%"></div>
-        <div class="sg-now" style="left:${belowPct}%"><span>now ${fmt.price(s.lastPrice)}</span></div>
+        <div class="sg-now" style="left:${belowPct}%"></div>
       </div>
-      <div class="sg-cap"><span class="sg-sup">▼ support below: ${supportTxt}</span><span class="sg-sly">overhead supply: ${supplyTxt} ▲</span></div>
+      <div class="sg-cap"><span class="sg-sup">▼ support: ${supportTxt}</span><span class="sg-sly">supply: ${supplyTxt} ▲</span></div>
     </div>
     <div class="setup-meta">${s.outlierCount} unusual print${s.outlierCount > 1 ? 's' : ''} · ${fmt.money(s.outlierNotional)}${adv}</div>
     <div class="setup-biggest">Largest: <b>${fmt.money(b.value)}</b> · ${fmt.int(b.size)} sh @ ${fmt.price(b.price)}

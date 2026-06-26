@@ -1,5 +1,11 @@
 import { config } from './config.js';
 import { queryHistory } from './db/index.js';
+import { marketSession } from './market.js';
+
+// Block-level analysis should ignore overnight/weekend prints — a 15M-share
+// SLV print at 1:35am ET is a data artifact (creation/redemption or bad tape),
+// not a tradeable level, and it badly skews both the bias and %ADV.
+const inSession = (ms) => marketSession(ms) !== 'closed';
 
 // Aggressor-side helpers (matches the bid/ask classification we store).
 const isBuy = (ba) => ba === 'Above Ask' || ba === 'At Ask';
@@ -24,18 +30,19 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
   //     the large trades across all 10 days — sorting the whole tape by time and
   //     capping rows would truncate the lookback to ~today on a busy universe,
   //     hiding prior-day blocks (the bug where a name read "1 day / at level").
-  const { rows: big } = await queryHistory({
+  const bigRes = await queryHistory({
     from: since, to: until - 1, minNotional: cfg.minNotional,
     sort: 'value', order: 'desc', limit: 6000,
   });
+  const big = bigRes.rows.filter((r) => inSession(r.tradedAt));
   if (!big.length) return [];
 
   // (2) Most-recent prints, for a current-price proxy per ticker.
-  const { rows: recent } = await queryHistory({
+  const recentRes = await queryHistory({
     from: since, to: until - 1, sort: 'traded_at', order: 'desc', limit: 3000,
   });
   const lastByTicker = new Map();
-  for (const r of recent) if (!lastByTicker.has(r.ticker)) lastByTicker.set(r.ticker, r);
+  for (const r of recentRes.rows) if (inSession(r.tradedAt) && !lastByTicker.has(r.ticker)) lastByTicker.set(r.ticker, r);
 
   // Group the big prints by ticker.
   const byTicker = new Map();
@@ -85,8 +92,14 @@ export async function getSetups({ since, until, limit = 24 } = {}) {
     // posConv: +1 = price above essentially all the block volume (support beneath);
     //          -1 = price has dropped below the block volume (overhead supply).
     // flowConv: +1 = the big prints were aggressive buying; -1 = aggressive selling.
+    // Two views of "where is price vs the big trades", blended so neither a lone
+    // deep print nor a far-overhead shelf can dominate on its own:
+    //  - posSplit: notional above vs below price (volume-at-price support/resist).
+    //  - vwapConv: price vs the share-weighted center of all the big trades.
     const posDenom = aboveNot + belowNot + atNot || 1;
-    const posConv = (belowNot - aboveNot) / posDenom;
+    const posSplit = (belowNot - aboveNot) / posDenom;
+    const vwapConv = keyLevel ? Math.max(-1, Math.min(1, (lastPrice - keyLevel) / (lastPrice * 0.04))) : 0;
+    const posConv = 0.5 * posSplit + 0.5 * vwapConv; // + = price above the blocks
     const flowConv = buyNotional + sellNotional > 0 ? (buyNotional - sellNotional) / (buyNotional + sellNotional) : 0;
     const posBull = posConv > 0.2, posBear = posConv < -0.2;
     const flowBuy = flowConv > 0.2, flowSell = flowConv < -0.2;
