@@ -22,3 +22,5 @@ export const saveBriefStructured = impl.saveBriefStructured;
 export const getRecentThemes = impl.getRecentThemes;
 export const getRecentIdeas = impl.getRecentIdeas;
 export const getIdeasByTicker = impl.getIdeasByTicker;
+export const getWeeklyReport = impl.getWeeklyReport;
+export const saveWeeklyReport = impl.saveWeeklyReport;

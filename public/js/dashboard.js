@@ -14,6 +14,9 @@ let newsByDate = {};      // date -> report object
 let kbByDate = {};        // date -> { themes, ideas } knowledge base
 let newsLoading = false;
 let newsLoadingDate = null;
+let weeklyReport = null;  // current week's review { weekEnding, content, ... }
+let weeklyLoading = false;
+let weeklyPolling = false;
 let cfg = {};             // /api/config snapshot (newsEnabled, newsSignals)
 const esc = (s) => String(s == null ? '' : s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
 const PRINT_MIN = 400000;
@@ -30,6 +33,7 @@ document.getElementById('tabs').addEventListener('click', (e) => {
   activeTab = tab.dataset.tab;
   if (activeTab === 'news') ensureNewsLoaded();
   if (activeTab === 'setups' && !setupsLoaded) loadSetups();
+  if (activeTab === 'weekly') ensureWeeklyLoaded();
   renderMain(false); // switching tabs resets scroll to top
 });
 
@@ -47,6 +51,7 @@ function renderMain(preserveScroll = true) {
   else if (activeTab === 'premarket') renderVolume();
   else if (activeTab === 'heatmap') renderHeatmap();
   else if (activeTab === 'news') renderNews();
+  else if (activeTab === 'weekly') renderWeekly();
   if (preserveScroll && prev) {
     const sc = mainPanel.querySelector(SCROLLERS);
     if (sc) sc.scrollTop = prev;
@@ -401,6 +406,98 @@ async function generateNews() {
 
 const sleep = (ms) => new Promise((res) => setTimeout(res, ms));
 
+// ---- Weekly review (Week in Review + Week Ahead) ----
+function weekLabel(we) {
+  if (!we) return 'this week';
+  const [y, m, d] = we.split('-').map(Number);
+  return new Date(y, m - 1, d).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' });
+}
+
+function renderWeekly() {
+  const r = weeklyReport;
+  const we = r?.weekEnding;
+  let body;
+  if (weeklyLoading || (r && !r.content && r.status === 'running') || weeklyPolling) {
+    body = `<div class="news-loading"><div class="spinner"></div>
+      <div>Synthesizing the week's flow, setups &amp; briefs into a week-ahead plan…</div>
+      <div class="news-sub">Reviewing the week and researching next week's catalysts — this can take 1–2 min.</div></div>`;
+  } else if (r && r.content) {
+    const when = r.generatedAt ? `generated ${fmt.datetime(r.generatedAt)}` : '';
+    body = `<div class="news-meta"><span>${when}</span>
+        <button class="ghost-btn sm" data-gen-weekly>↻ Regenerate</button></div>
+      <article class="md">${mdToHtml(stripPreamble(r.content))}</article>`;
+  } else {
+    const err = r && r.error ? `<div class="news-err">${esc(r.error)}</div>` : '';
+    const canGen = cfg.weeklyEnabled;
+    const hint = canGen
+      ? `Runs automatically every <b>Friday at 4:00pm CT</b>. Synthesizes the full week's biggest themes from the daily briefs, setups and block flow, then lays out the tickers &amp; themes to trade next week.`
+      : 'Set <code>ANTHROPIC_API_KEY</code> on the server to enable the weekly review.';
+    body = `<div class="news-empty"><div class="big">🗓️</div>
+        <div>${hint}</div>${err}
+        <button class="gen-btn" data-gen-weekly ${canGen ? '' : 'disabled'}>Generate week-ahead plan</button>
+      </div>`;
+  }
+  mainPanel.innerHTML = `
+    <section class="panel">
+      <div class="panel-head"><h2>Week Ahead 🗓️</h2><span class="hint">week ending ${weekLabel(we)}</span></div>
+      <div class="news-wrap">${body}</div>
+    </section>`;
+}
+
+async function ensureWeeklyLoaded() {
+  if (weeklyReport === null && !weeklyLoading) loadWeekly();
+}
+
+async function loadWeekly() {
+  weeklyLoading = true;
+  if (activeTab === 'weekly') renderMain(false);
+  try {
+    const rep = await api('/api/weekly');
+    weeklyReport = rep;
+    weeklyLoading = false;
+    if (activeTab === 'weekly') renderMain(false);
+    // If the server kicked off generation (or it was already running), poll.
+    if (rep && !rep.content && rep.status === 'running') pollWeekly(rep.weekEnding);
+  } catch {
+    weeklyLoading = false;
+    if (activeTab === 'weekly') renderMain(false);
+  }
+}
+
+async function generateWeekly() {
+  if (!cfg.weeklyEnabled || weeklyPolling) return;
+  weeklyLoading = true; if (activeTab === 'weekly') renderMain(false);
+  try {
+    const r = await fetch('/api/weekly/generate', { method: 'POST' });
+    const j = await r.json().catch(() => ({}));
+    weeklyLoading = false;
+    pollWeekly(j.weekEnding);
+  } catch (err) {
+    weeklyLoading = false;
+    weeklyReport = { content: null, error: err.message };
+    if (activeTab === 'weekly') renderMain(false);
+  }
+}
+
+async function pollWeekly(week) {
+  if (weeklyPolling) return;
+  weeklyPolling = true;
+  if (activeTab === 'weekly') renderMain(false);
+  const deadline = Date.now() + 5 * 60 * 1000;
+  try {
+    while (Date.now() < deadline) {
+      await sleep(5000);
+      let rep;
+      try { rep = await api(`/api/weekly${week ? `?week=${week}` : ''}`); } catch { continue; }
+      if (rep && rep.content) { weeklyReport = rep; break; }
+      if (rep && rep.status === 'error') { weeklyReport = { weekEnding: week, content: null, error: rep.error || 'generation failed' }; break; }
+    }
+  } finally {
+    weeklyPolling = false;
+    if (activeTab === 'weekly') renderMain(false);
+  }
+}
+
 // ---- Prints feed ----
 function addPrint(t, animate = true) {
   if (t.size < PRINT_MIN) return;
@@ -520,6 +617,7 @@ async function init() {
   wireDateNav();
   mainPanel.addEventListener('click', (e) => {
     if (e.target.closest('[data-gen-news]')) generateNews();
+    if (e.target.closest('[data-gen-weekly]')) generateWeekly();
     const f = e.target.closest('[data-setup-filter]');
     if (f) { setupsFilter = f.dataset.setupFilter; renderMain(false); }
   });

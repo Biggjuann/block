@@ -48,6 +48,29 @@ export async function initDb() {
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brief_themes_date  ON brief_themes(date)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brief_ideas_date   ON brief_ideas(date)`);
   await pool.query(`CREATE INDEX IF NOT EXISTS idx_brief_ideas_ticker ON brief_ideas(ticker)`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      week_ending  TEXT PRIMARY KEY,
+      content      TEXT NOT NULL,
+      model        TEXT,
+      generated_at BIGINT NOT NULL
+    )`);
+}
+
+export async function getWeeklyReport(weekEnding) {
+  const r = await pool.query('SELECT week_ending, content, model, generated_at FROM weekly_reports WHERE week_ending = $1', [weekEnding]);
+  if (!r.rows[0]) return null;
+  const x = r.rows[0];
+  return { weekEnding: x.week_ending, content: x.content, model: x.model, generatedAt: Number(x.generated_at) };
+}
+
+export async function saveWeeklyReport({ weekEnding, content, model, generatedAt }) {
+  await pool.query(
+    `INSERT INTO weekly_reports (week_ending, content, model, generated_at) VALUES ($1, $2, $3, $4)
+     ON CONFLICT (week_ending) DO UPDATE SET content = EXCLUDED.content, model = EXCLUDED.model,
+       generated_at = EXCLUDED.generated_at`,
+    [weekEnding, content, model, generatedAt]
+  );
 }
 
 export async function getDailyReport(date) {

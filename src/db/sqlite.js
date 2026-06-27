@@ -48,7 +48,27 @@ export async function initDb() {
     CREATE INDEX IF NOT EXISTS idx_brief_themes_date  ON brief_themes(date);
     CREATE INDEX IF NOT EXISTS idx_brief_ideas_date   ON brief_ideas(date);
     CREATE INDEX IF NOT EXISTS idx_brief_ideas_ticker ON brief_ideas(ticker);
+    CREATE TABLE IF NOT EXISTS weekly_reports (
+      week_ending  TEXT PRIMARY KEY,
+      content      TEXT NOT NULL,
+      model        TEXT,
+      generated_at INTEGER NOT NULL
+    );
   `);
+}
+
+export async function getWeeklyReport(weekEnding) {
+  return db
+    .prepare('SELECT week_ending AS weekEnding, content, model, generated_at AS generatedAt FROM weekly_reports WHERE week_ending = ?')
+    .get(weekEnding) || null;
+}
+
+export async function saveWeeklyReport({ weekEnding, content, model, generatedAt }) {
+  db.prepare(
+    `INSERT INTO weekly_reports (week_ending, content, model, generated_at) VALUES (?, ?, ?, ?)
+     ON CONFLICT(week_ending) DO UPDATE SET content = excluded.content, model = excluded.model,
+       generated_at = excluded.generated_at`
+  ).run(weekEnding, content, model, generatedAt);
 }
 
 export async function getDailyReport(date) {

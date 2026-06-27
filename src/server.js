@@ -12,6 +12,7 @@ import { detectSweep } from './sweeps.js';
 import { getChartData } from './chart.js';
 import { getSetups } from './setups.js';
 import { generateDailyNews, newsEnabled, newsSignalsConfigured } from './news.js';
+import { generateWeeklyReview, weeklyEnabled, currentWeekEnding, weekWindow } from './weekly.js';
 import {
   dbBackend,
   getDailyReport,
@@ -23,11 +24,13 @@ import {
   getRecentThemes,
   getStats,
   getTopTrades,
+  getWeeklyReport,
   initDb,
   purgeBlockTrades,
   queryHistory,
   saveBriefStructured,
   saveDailyReport,
+  saveWeeklyReport,
 } from './db/index.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +68,7 @@ app.get('/api/config', (_req, res) =>
     storage: dbBackend,
     newsEnabled: newsEnabled(),
     newsSignals: newsSignalsConfigured(),
+    weeklyEnabled: weeklyEnabled(),
     status,
   })
 );
@@ -240,6 +244,59 @@ app.get('/api/ideas', handle(async (req, res) => {
   res.json(await getRecentIdeas({ since: shiftDay(anchor, days), before: shiftDay(anchor, -1), limit: clamp(Number(req.query.limit) || 60, 1, 200) }));
 }));
 
+// ---- Weekly "Week in Review + Week Ahead" ----
+// Auto-runs every Friday 4pm Central. Because the platform may sleep the
+// service, generation is also kicked lazily on view, and a scheduler catches
+// up whenever the process is awake after the due time.
+const weeklyJobs = new Map(); // weekEnding -> { status, error, at }
+
+function runWeekly(weekEnding) {
+  if (weeklyJobs.get(weekEnding)?.status === 'running') return;
+  weeklyJobs.set(weekEnding, { status: 'running', at: Date.now() });
+  (async () => {
+    try {
+      const { since, until } = weekWindow(weekEnding);
+      const out = await generateWeeklyReview({ weekEnding, since, until });
+      if (out.empty) {
+        weeklyJobs.set(weekEnding, { status: 'error', error: out.reason || 'No data for this week.', at: Date.now() });
+      } else {
+        await saveWeeklyReport({ weekEnding, content: out.content, model: config.news.model, generatedAt: Date.now() });
+        weeklyJobs.delete(weekEnding);
+      }
+    } catch (err) {
+      console.error('weekly generation failed', err.message);
+      weeklyJobs.set(weekEnding, { status: 'error', error: err.message, at: Date.now() });
+    }
+  })();
+}
+
+// Generate the most-recent due weekly report if it's missing (scheduler + boot).
+async function maybeRunWeekly() {
+  if (!weeklyEnabled()) return;
+  const we = currentWeekEnding();
+  if (weeklyJobs.has(we)) return;
+  if (await getWeeklyReport(we)) return;
+  console.log(`[weekly] generating week-in-review for ${we}`);
+  runWeekly(we);
+}
+
+app.get('/api/weekly', handle(async (req, res) => {
+  const week = String(req.query.week || '').slice(0, 10) || currentWeekEnding();
+  const report = await getWeeklyReport(week);
+  if (report) return res.json(report);
+  // Lazily kick off the current due week's report when someone views it.
+  if (weeklyEnabled() && week === currentWeekEnding() && !weeklyJobs.has(week)) runWeekly(week);
+  const job = weeklyJobs.get(week);
+  res.json({ weekEnding: week, content: null, status: job?.status, error: job?.error });
+}));
+
+app.post('/api/weekly/generate', handle(async (req, res) => {
+  if (!weeklyEnabled()) return res.status(400).json({ error: 'Weekly review disabled — set ANTHROPIC_API_KEY' });
+  const week = String(req.query.week || '').slice(0, 10) || currentWeekEnding();
+  if (weeklyJobs.get(week)?.status !== 'running') runWeekly(week);
+  res.status(202).json({ weekEnding: week, status: 'generating' });
+}));
+
 // ---- Static frontend ----
 app.use(express.static(publicDir));
 app.get('/dashboard', (_req, res) => res.sendFile(path.join(publicDir, 'dashboard.html')));
@@ -249,6 +306,14 @@ app.get('/', (_req, res) => res.sendFile(path.join(publicDir, 'index.html')));
 // ---- Initialize storage, then start fundamentals (ADV) + ingestion ----
 await initDb();
 console.log(`Storage: ${dbBackend.toUpperCase()}`);
+
+// Weekly review scheduler: check on boot, then every 10 min. The "generate if
+// the most-recent due Friday report is missing" guard means it fires once per
+// week whenever the process happens to be awake after Friday 4pm Central.
+if (weeklyEnabled()) {
+  maybeRunWeekly().catch((e) => console.error('weekly check failed', e.message));
+  setInterval(() => maybeRunWeekly().catch((e) => console.error('weekly check failed', e.message)), 10 * 60 * 1000);
+}
 
 startFundamentals({ symbols: config.schwab.symbols, useSchwab: !useSimulator });
 
