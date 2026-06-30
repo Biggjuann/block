@@ -148,6 +148,11 @@ function fireAlert(alert) {
 
 function fireSweep(sweep) {
   if (settings.sweepAlerts === false) return;
+  // Honor the same Alert-rules filters as block alerts: a sweep's total notional
+  // must clear the min-notional rule (the server detects sweeps on its own,
+  // lower threshold), and respect watchlist-only.
+  if (settings.alertWatchlistOnly && !watchlist.has(sweep.ticker)) return;
+  if (settings.alertMinNotional && (sweep.totalValue || 0) < settings.alertMinNotional) return;
   fireAlert({ source: 'sweep', sweep, at: sweep.at });
 }
 
