@@ -3,6 +3,8 @@ import {
   loadSettings, saveSettings, loadWatchlist, saveWatchlist,
   requestNotifyPermission, notify, beep,
 } from './common.js';
+import { enableTickerClicks } from './chart.js';
+import { initSortable } from './sortable.js';
 
 const MAX_ROWS = 60;
 const BUFFER_CAP = 800;
@@ -35,7 +37,7 @@ function buildColumns() {
         <div class="meta">${rangeLabel(c)} shares</div>
       </div>
       <div class="table-wrap">
-        <table>
+        <table class="sortable" data-sort-key="tape-${c.min}">
           <thead><tr>
             <th>Time</th><th>Ticker</th><th class="num">Price</th>
             <th class="num">Size</th><th class="num">Value</th><th>Bid&nbsp;Ask</th>
@@ -115,8 +117,9 @@ const alertedKeys = new Set();   // dedup so a trade can't alert twice (you + ma
 let lastToastAt = 0;             // global throttle for intrusive surfaces
 
 function fireAlert(alert) {
-  const t = alert.trade;
-  const key = t.id ?? `${t.ticker}:${t.tradedAt}`;
+  const key = alert.source === 'sweep'
+    ? `sweep:${alert.sweep.ticker}:${alert.sweep.at}`
+    : (alert.trade.id ?? `${alert.trade.ticker}:${alert.trade.tradedAt}`);
   if (alertedKeys.has(key)) return;
   alertedKeys.add(key);
   if (alertedKeys.size > 600) alertedKeys.clear();
@@ -133,8 +136,24 @@ function fireAlert(alert) {
   if (now - lastToastAt < 3500) return;
   lastToastAt = now;
   showToast(alert);
-  if (settings.notify) notify(`${t.ticker} block`, alert.reasons.join(' · '));
+  if (settings.notify) {
+    if (alert.source === 'sweep') {
+      notify(`${alert.sweep.ticker} ${alert.sweep.side} sweep`, `${fmt.money(alert.sweep.totalValue)} across ${alert.sweep.count} prints`);
+    } else {
+      notify(`${alert.trade.ticker} block`, alert.reasons.join(' · '));
+    }
+  }
   if (settings.sound) beep();
+}
+
+function fireSweep(sweep) {
+  if (settings.sweepAlerts === false) return;
+  // Honor the same Alert-rules filters as block alerts: a sweep's total notional
+  // must clear the min-notional rule (the server detects sweeps on its own,
+  // lower threshold), and respect watchlist-only.
+  if (settings.alertWatchlistOnly && !watchlist.has(sweep.ticker)) return;
+  if (settings.alertMinNotional && (sweep.totalValue || 0) < settings.alertMinNotional) return;
+  fireAlert({ source: 'sweep', sweep, at: sweep.at });
 }
 
 function renderBadge() {
@@ -144,6 +163,19 @@ function renderBadge() {
 }
 
 function alertHTML(a) {
+  if (a.source === 'sweep') {
+    const s = a.sweep;
+    const arrow = s.side === 'buy' ? '▲' : '▼';
+    return `<div class="alert-item sweep ${s.side}">
+      <div class="ai-top"><span class="ai-icon">⚡</span>
+        <span class="ai-ticker">${s.ticker}</span>
+        <span class="sweep-tag ${s.side}">${arrow} ${s.side.toUpperCase()} SWEEP</span>
+        <span class="ai-val">${fmt.money(s.totalValue)}</span>
+        <span class="ai-time">${fmt.time(a.at)}</span></div>
+      <div class="ai-sub">${s.count} prints · ${fmt.int(s.totalSize)} sh ·
+        ${fmt.price(s.priceLow)}–${fmt.price(s.priceHigh)}</div>
+    </div>`;
+  }
   const t = a.trade;
   const icon = a.source === 'market' ? '🐋' : '⭐';
   return `<div class="alert-item ${a.source}">
@@ -230,14 +262,17 @@ function wireToolbar() {
     notional: document.getElementById('al-notional'),
     pctadv: document.getElementById('al-pctadv'),
     watchOnly: document.getElementById('al-watch-only'),
+    sweeps: document.getElementById('al-sweeps'),
     notify: document.getElementById('al-notify'),
     sound: document.getElementById('al-sound'),
   };
   fields.notional.value = settings.alertMinNotional;
   fields.pctadv.value = settings.alertMinPctADV;
   fields.watchOnly.checked = settings.alertWatchlistOnly;
+  fields.sweeps.checked = settings.sweepAlerts !== false;
   fields.notify.checked = settings.notify;
   fields.sound.checked = settings.sound;
+  fields.sweeps.addEventListener('change', () => { settings.sweepAlerts = fields.sweeps.checked; saveSettings(settings); });
 
   document.getElementById('alert-settings-btn').addEventListener('click', () => { pop.hidden = !pop.hidden; });
   document.getElementById('al-close').addEventListener('click', () => { pop.hidden = true; });
@@ -272,6 +307,16 @@ function onTrade(t) {
   if (a) fireAlert(a);
 }
 
+// Rebuild the tape buffer from the server's continuously-recorded history.
+async function resync() {
+  try {
+    const recent = await api('/api/recent?limit=400');
+    buffer.length = 0;
+    recent.reverse().forEach((t) => buffer.unshift(t));
+    renderAll();
+  } catch { /* ignore */ }
+}
+
 async function refreshStats() {
   try {
     const s = await api('/api/stats');
@@ -291,13 +336,17 @@ async function init() {
   renderChips();
   wireToolbar();
   renderAlertsList();
+  enableTickerClicks();
+  initSortable();
 
-  try {
-    const recent = await api('/api/recent?limit=400');
-    recent.reverse().forEach((t) => buffer.unshift(t));
-    buffer.splice(BUFFER_CAP); // cap
-    renderAll();
-  } catch { /* ignore */ }
+  await resync();
+
+  // Re-sync from the server-side record whenever the tab regains focus, so any
+  // gap from background throttling is filled instantly. (Capture itself runs
+  // continuously on the server regardless of whether this page is open.)
+  document.addEventListener('visibilitychange', () => {
+    if (!document.hidden) { resync(); refreshStats(); }
+  });
 
   refreshStats();
   setInterval(refreshStats, 5000);
@@ -306,6 +355,7 @@ async function init() {
 
   connectWS((msg) => {
     if (msg.type === 'trade') onTrade(msg.trade);
+    else if (msg.type === 'sweep') fireSweep(msg.sweep);
     // Server "whale" alerts are intentionally NOT surfaced here — the browser
     // evaluates every trade against YOUR Alert Rules locally, so your settings
     // are the single source of truth. Server alerts drive Discord push only.

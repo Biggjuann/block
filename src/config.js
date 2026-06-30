@@ -56,6 +56,10 @@ export const config = {
   // Keep the simulator generating tape 24/7 (e.g. for demos). Off by default
   // so simulated tape pauses when the market is closed, matching reality.
   simulateAlways: bool(process.env.SIMULATE_ALWAYS, false),
+  // When streaming from Schwab and the stream errors, optionally fall back to
+  // the simulator to keep the UI alive. OFF by default so real deployments
+  // never persist synthetic prints into the database during a hiccup.
+  simFallback: bool(process.env.SIM_FALLBACK, false),
   thresholds,
   columns,
   // How often to refresh Schwab fundamentals (ADV) in ms.
@@ -65,6 +69,37 @@ export const config = {
     minNotional: num(process.env.ALERT_MIN_NOTIONAL, 50_000_000),
     minPctADV: num(process.env.ALERT_MIN_PCT_ADV, 10),
     discordWebhook: process.env.DISCORD_WEBHOOK_URL || '',
+  },
+  // Sweep detection: N+ same-side aggressive prints within a rolling window
+  // summing to at least the notional threshold flags an intraday sweep.
+  sweeps: {
+    windowMs: num(process.env.SWEEP_WINDOW_MS, 8000),
+    minPrints: num(process.env.SWEEP_MIN_PRINTS, 3),
+    minNotional: num(process.env.SWEEP_MIN_NOTIONAL, 5_000_000),
+    cooldownMs: num(process.env.SWEEP_COOLDOWN_MS, 30000),
+  },
+  // Unusual-print "setups" detector: flags tickers with abnormally large
+  // single prints and classifies the setup bullish/bearish by where price
+  // sits relative to where those big trades printed.
+  setups: {
+    lookbackDays: num(process.env.SETUPS_LOOKBACK_DAYS, 10),
+    // A single print is "unusual" if it clears the notional floor AND either
+    // is a large % of ADV, or is a statistical outlier vs the ticker's own
+    // recent prints (robust median multiple / z-score).
+    minNotional: num(process.env.SETUPS_MIN_NOTIONAL, 2_000_000),
+    pctAdvUnusual: num(process.env.SETUPS_PCT_ADV, 1.5),
+    medianMult: num(process.env.SETUPS_MEDIAN_MULT, 2.5),
+    sigma: num(process.env.SETUPS_SIGMA, 2),
+    minBaseline: num(process.env.SETUPS_MIN_BASELINE, 5),
+  },
+  // AI Daily News brief (Claude) + optional external news-signal engine.
+  news: {
+    model: process.env.NEWS_MODEL || 'claude-opus-4-8',
+    // Cheaper model used to extract structured themes/ideas from each brief.
+    extractModel: process.env.NEWS_EXTRACT_MODEL || 'claude-haiku-4-5',
+    // Base URL of the News sentiment/signals service (the FastAPI engine):
+    // exposes GET /signals and GET /signals/{ticker}. Leave empty to skip it.
+    apiUrl: (process.env.NEWS_API_URL || '').replace(/\/+$/, ''),
   },
 };
 

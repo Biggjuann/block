@@ -26,6 +26,21 @@ generates realistic block-trade tape, so the UI is fully live out of the box.
     matching block prints. A bell + drawer keeps a running alert feed.
 - **Server-side "whale" alerts** — globally significant blocks (by notional or
   %ADV) are broadcast to all clients and optionally pushed to **Discord**.
+- **Click-through charts** — click any ticker (tape, dashboard, or history) to
+  open an intraday price chart with the day's block prints overlaid as markers
+  (green = buy-side, red = sell-side, sized by notional) and a net buy/sell
+  pressure header. Real intraday data from Schwab `pricehistory`, synthesized
+  in simulator mode.
+- **Sweep detection** — a directional burst of same-side aggressive prints in a
+  short window flags a SWEEP (⚡), surfaced as an alert and pushed to Discord.
+- **Net buy/sell pressure** — a Dashboard tab ranks tickers by aggressor-side
+  notional (buys lifting offers vs sells hitting bids).
+- **Daily News (AI brief)** — a Dashboard tab where Claude (`claude-opus-4-8`)
+  reads the selected day's flow, pulls sentiment/signals from your News engine
+  (`NEWS_API_URL`, optional) and researches the day with web search, then writes
+  a Markdown brief: themes of the day, why the big trades happened (with sourced
+  catalysts), and consolidating setups to watch for a breakout/breakdown.
+  Requires `ANTHROPIC_API_KEY`; briefs are cached per day in the database.
 - **Dashboard (`/dashboard`)** — Top Trades (notional bar chart + table),
   Volume Leaders, a value Heatmap, and a live **Prints** feed. Earnings &
   Ex-Dividend tabs are scaffolded for a future fundamentals feed.
@@ -87,6 +102,9 @@ valid Schwab OAuth **access token** to stream real data.
 | `ALERT_MIN_NOTIONAL` | `25000000`                 | $ notional that triggers a server "whale" alert (0 disables) |
 | `ALERT_MIN_PCT_ADV`  | `5`                        | % of ADV that triggers a server alert (0 disables) |
 | `DISCORD_WEBHOOK_URL`| _(empty)_                  | Optional Discord webhook for off-screen alert push |
+| `ANTHROPIC_API_KEY`  | _(empty)_                  | Enables the AI Daily News brief (Claude + web search) |
+| `NEWS_MODEL`         | `claude-opus-4-8`          | Model used for the news brief |
+| `NEWS_API_URL`       | _(empty)_                  | Base URL of your News signals engine (`GET /signals`); fed into the brief |
 
 ## Deploying to Railway
 
