@@ -416,21 +416,24 @@ function weekLabel(we) {
 function renderWeekly() {
   const r = weeklyReport;
   const we = r?.weekEnding;
+  const busy = weeklyLoading || weeklyPolling || (r && !r.content && r.status === 'running');
+  const headBtn = cfg.weeklyEnabled
+    ? `<button class="ghost-btn sm" data-gen-weekly ${busy ? 'disabled' : ''}>${busy ? 'Generating…' : (r && r.content ? '↻ Regenerate' : '✨ Generate now')}</button>`
+    : '';
   let body;
-  if (weeklyLoading || (r && !r.content && r.status === 'running') || weeklyPolling) {
+  if (busy) {
     body = `<div class="news-loading"><div class="spinner"></div>
       <div>Synthesizing the week's flow, setups &amp; briefs into a week-ahead plan…</div>
       <div class="news-sub">Reviewing the week and researching next week's catalysts — this can take 1–2 min.</div></div>`;
   } else if (r && r.content) {
     const when = r.generatedAt ? `generated ${fmt.datetime(r.generatedAt)}` : '';
-    body = `<div class="news-meta"><span>${when}</span>
-        <button class="ghost-btn sm" data-gen-weekly>↻ Regenerate</button></div>
+    body = `<div class="news-meta"><span>${when}</span></div>
       <article class="md">${mdToHtml(stripPreamble(r.content))}</article>`;
   } else {
     const err = r && r.error ? `<div class="news-err">${esc(r.error)}</div>` : '';
     const canGen = cfg.weeklyEnabled;
     const hint = canGen
-      ? `Runs automatically every <b>Friday at 4:00pm CT</b>. Synthesizes the full week's biggest themes from the daily briefs, setups and block flow, then lays out the tickers &amp; themes to trade next week.`
+      ? `Runs automatically every <b>Friday at 4:00pm CT</b> — or hit <b>Generate now</b> to build it on demand. Synthesizes the full week's biggest themes from the daily briefs, setups and block flow, then lays out the tickers &amp; themes to trade next week.`
       : 'Set <code>ANTHROPIC_API_KEY</code> on the server to enable the weekly review.';
     body = `<div class="news-empty"><div class="big">🗓️</div>
         <div>${hint}</div>${err}
@@ -439,7 +442,8 @@ function renderWeekly() {
   }
   mainPanel.innerHTML = `
     <section class="panel">
-      <div class="panel-head"><h2>Week Ahead 🗓️</h2><span class="hint">week ending ${weekLabel(we)}</span></div>
+      <div class="panel-head"><h2>Week Ahead 🗓️</h2>
+        <span class="hint" style="display:flex;align-items:center;gap:10px">week ending ${weekLabel(we)} ${headBtn}</span></div>
       <div class="news-wrap">${body}</div>
     </section>`;
 }
