@@ -2,10 +2,21 @@ import Anthropic from '@anthropic-ai/sdk';
 import { config } from './config.js';
 import {
   getTopTrades, getPressure, getStats, queryHistory,
-  getRecentThemes, getRecentIdeas,
+  getRecentThemes, getRecentIdeas, getRecentDailyReports,
 } from './db/index.js';
 
-const LOOKBACK_DAYS = 21; // how far back to cross-reference prior briefs
+const LOOKBACK_DAYS = 45;   // how far back the structured KB (themes/ideas) reaches
+const PRIOR_BRIEFS = 15;    // how many recent daily briefs to feed in for thematics
+
+// Condense a prior brief to its thematic essence (TL;DR + Themes) so many can be
+// included without blowing the token budget.
+function condenseBrief(md) {
+  if (!md) return '';
+  const cut = md.search(/\n##\s+Why the Big Trades/i);
+  let s = (cut > 0 ? md.slice(0, cut) : md).trim();
+  if (s.length > 1400) s = s.slice(0, 1400) + '…';
+  return s;
+}
 const addDays = (dateStr, n) => {
   const [y, m, d] = dateStr.split('-').map(Number);
   const t = new Date(Date.UTC(y, m - 1, d) + n * 86400000);
@@ -73,14 +84,15 @@ export async function generateDailyNews({ date, since, until }) {
   if (!newsEnabled()) throw new Error('ANTHROPIC_API_KEY not configured');
 
   const priorSince = addDays(date, -LOOKBACK_DAYS);
-  const [top, pressure, stats, bigRes, signals, priorThemes, priorIdeas] = await Promise.all([
+  const [top, pressure, stats, bigRes, signals, priorThemes, priorIdeas, priorReports] = await Promise.all([
     getTopTrades({ since, until, limit: 15 }),
     getPressure({ since, until, limit: 15 }),
     getStats({ since, until }),
     queryHistory({ from: since, to: until - 1, sort: 'value', order: 'desc', limit: 30 }),
     fetchNewsSignals(),
-    getRecentThemes({ since: priorSince, before: date, limit: 12 }),
+    getRecentThemes({ since: priorSince, before: date, limit: 15 }),
     getRecentIdeas({ since: priorSince, before: date, limit: 40 }),
+    getRecentDailyReports({ before: date, limit: PRIOR_BRIEFS }),
   ]);
   const big = bigRes.rows;
   if (!big.length) {
@@ -95,9 +107,20 @@ export async function generateDailyNews({ date, since, until }) {
   // Prior knowledge base: themes and ideas from recent briefs, for continuity.
   const themeLines = (priorThemes || []).map((t) => `- ${t.theme} (seen ${t.days} day${t.days > 1 ? 's' : ''}, last ${t.lastDate})`).join('\n');
   const ideaLines = (priorIdeas || []).slice(0, 30).map((i) => `- ${i.ticker} [${i.bias || 'n/a'}] ${i.date}: ${i.thesis || ''}${i.catalyst ? ` — catalyst: ${i.catalyst}` : ''}`).join('\n');
-  const priorBlock = (themeLines || ideaLines)
-    ? `\n\nPRIOR KNOWLEDGE BASE (from briefs over the last ${LOOKBACK_DAYS} days — use this to track continuity):
-${themeLines ? `Recurring themes:\n${themeLines}\n` : ''}${ideaLines ? `Tracked ideas/setups:\n${ideaLines}` : ''}`
+  // Actual prior daily briefs (condensed), newest first — the real source for
+  // building multi-day/multi-week thematics (not just yesterday).
+  const briefLines = (priorReports || [])
+    .map((r) => `### ${r.date}\n${condenseBrief(r.content)}`)
+    .filter((s) => s.trim().length > 8)
+    .join('\n\n');
+  const priorBlock = (briefLines || themeLines || ideaLines)
+    ? `\n\nPRIOR DESK HISTORY — use ALL of this to build multi-day thematics and continuity, not just the most recent session.${
+        themeLines ? `\n\nRecurring themes across the last ${LOOKBACK_DAYS} days (theme — how many distinct days it appeared):\n${themeLines}` : ''
+      }${
+        ideaLines ? `\n\nTracked per-ticker ideas/setups from recent briefs:\n${ideaLines}` : ''
+      }${
+        briefLines ? `\n\nThe last ${Math.min(PRIOR_BRIEFS, (priorReports || []).length)} daily briefs (condensed to TL;DR + Themes, newest first):\n${briefLines}` : ''
+      }`
     : '';
 
   const dataBlock = `Date: ${date}
@@ -137,7 +160,7 @@ The dominant sector/macro themes the flow points to. Where a theme also appears 
 For the most notable names above, explain the likely reason for the large prints — tie each to a specific catalyst or news item (with a source link) where one exists; flag names with no obvious catalyst as worth watching.
 
 ## Continuity & Follow-ups
-Cross-reference today's flow against the prior knowledge base: tickers reappearing in the flow, prior setups that are progressing or have triggered their catalyst, and theses that have been confirmed or invalidated. If there is no prior context yet, say so briefly.
+Cross-reference today's flow against the ENTIRE prior desk history above (all of the recent daily briefs, not just yesterday). Identify the multi-day/multi-week thematics that are developing: themes that keep recurring across sessions, tickers reappearing in the flow, prior setups that are progressing or have triggered their catalyst, and theses that have been confirmed or invalidated over time. Call out how long a theme has been building. Only say there is no prior context if the desk history above is genuinely empty.
 
 ## Consolidating Setups to Watch
 Tickers from the flow that have been consolidating/coiling and are seeing unusual block activity, with the specific news catalysts that could fuel a breakout or breakdown. Use the aggressor pressure for directional bias where relevant.

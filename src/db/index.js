@@ -18,6 +18,7 @@ export const queryHistory = impl.queryHistory;
 export const purgeBlockTrades = impl.purgeBlockTrades;
 export const getDailyReport = impl.getDailyReport;
 export const saveDailyReport = impl.saveDailyReport;
+export const getRecentDailyReports = impl.getRecentDailyReports;
 export const saveBriefStructured = impl.saveBriefStructured;
 export const getRecentThemes = impl.getRecentThemes;
 export const getRecentIdeas = impl.getRecentIdeas;

@@ -89,6 +89,11 @@ export async function saveDailyReport({ date, content, model, generatedAt }) {
   );
 }
 
+export async function getRecentDailyReports({ before, limit = 20 } = {}) {
+  const r = await pool.query('SELECT date, content FROM daily_reports WHERE date < $1 ORDER BY date DESC LIMIT $2', [before, limit]);
+  return r.rows.map((x) => ({ date: x.date, content: x.content }));
+}
+
 export async function saveBriefStructured(date, themes = [], ideas = []) {
   const c = await pool.connect();
   try {

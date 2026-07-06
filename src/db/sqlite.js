@@ -85,6 +85,13 @@ export async function saveDailyReport({ date, content, model, generatedAt }) {
   ).run(date, content, model, generatedAt);
 }
 
+// Recent daily briefs before `before` (a YYYY-MM-DD date), newest first.
+export async function getRecentDailyReports({ before, limit = 20 } = {}) {
+  return db
+    .prepare('SELECT date, content FROM daily_reports WHERE date < ? ORDER BY date DESC LIMIT ?')
+    .all(before, limit);
+}
+
 // Replace the structured themes/ideas extracted from a day's brief.
 export async function saveBriefStructured(date, themes = [], ideas = []) {
   const tx = db.transaction(() => {
