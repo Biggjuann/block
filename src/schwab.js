@@ -168,8 +168,11 @@ export function startSchwabStream({ symbols, onTrade, onStatus = () => {} }) {
     onTrade({
       ticker,
       price: last,
-      // Schwab LAST_SIZE for equities is in round lots (x100 shares).
-      size: lastSize * 100,
+      // Schwab LAST_SIZE is in SHARES, not round lots. (Verified against the
+      // consolidated tape: with a x100 multiplier the feed produced prints
+      // larger than a symbol's entire daily volume, e.g. a "37.8M share" RTX
+      // open print on a ~1.5M-volume day — the real cross was 377,933 sh.)
+      size: lastSize,
       bid,
       ask,
       tradedAt: tradeTime,

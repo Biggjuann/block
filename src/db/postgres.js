@@ -1,4 +1,5 @@
 import pg from 'pg';
+import { config } from '../config.js';
 
 const { Pool } = pg;
 let pool;
@@ -55,6 +56,39 @@ export async function initDb() {
       model        TEXT,
       generated_at BIGINT NOT NULL
     )`);
+  await pool.query(`
+    CREATE TABLE IF NOT EXISTS migrations (
+      name       TEXT PRIMARY KEY,
+      applied_at BIGINT NOT NULL
+    )`);
+
+  // One-time data fix: the Schwab ingest wrongly multiplied LAST_SIZE by 100
+  // (it is reported in shares, not round lots), inflating every stored size,
+  // value and %ADV by 100x. Correct existing rows once, then prune rows that
+  // were only ever recorded because of the inflation (below the block floor).
+  const LOT_FIX = 'lot_size_fix_2026_07';
+  const applied = await pool.query('SELECT 1 FROM migrations WHERE name = $1', [LOT_FIX]);
+  if (!applied.rows.length) {
+    const c = await pool.connect();
+    try {
+      await c.query('BEGIN');
+      const upd = await c.query(
+        `UPDATE block_trades SET
+           size = CAST(ROUND(size / 100.0) AS BIGINT),
+           value = ROUND((value / 100.0)::numeric, 2)::double precision,
+           pct_adv = ROUND((pct_adv / 100.0)::numeric, 2)::double precision`
+      );
+      const del = await c.query('DELETE FROM block_trades WHERE size < $1', [config.blockMinSize]);
+      await c.query('INSERT INTO migrations (name, applied_at) VALUES ($1, $2)', [LOT_FIX, Date.now()]);
+      await c.query('COMMIT');
+      if (upd.rowCount) console.log(`[migrate] ${LOT_FIX}: corrected ${upd.rowCount} rows, pruned ${del.rowCount} sub-block rows`);
+    } catch (err) {
+      await c.query('ROLLBACK');
+      throw err;
+    } finally {
+      c.release();
+    }
+  }
 }
 
 export async function getWeeklyReport(weekEnding) {

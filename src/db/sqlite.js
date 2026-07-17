@@ -54,7 +54,31 @@ export async function initDb() {
       model        TEXT,
       generated_at INTEGER NOT NULL
     );
+    CREATE TABLE IF NOT EXISTS migrations (
+      name       TEXT PRIMARY KEY,
+      applied_at INTEGER NOT NULL
+    );
   `);
+
+  // One-time data fix: the Schwab ingest wrongly multiplied LAST_SIZE by 100
+  // (it is reported in shares, not round lots), inflating every stored size,
+  // value and %ADV by 100x. Correct existing rows once, then prune rows that
+  // were only ever recorded because of the inflation (below the block floor).
+  const LOT_FIX = 'lot_size_fix_2026_07';
+  if (!db.prepare('SELECT 1 FROM migrations WHERE name = ?').get(LOT_FIX)) {
+    const tx = db.transaction(() => {
+      const { changes } = db.prepare(
+        `UPDATE block_trades SET
+           size = CAST(size / 100 AS INTEGER),
+           value = ROUND(value / 100.0, 2),
+           pct_adv = ROUND(pct_adv / 100.0, 2)`
+      ).run();
+      const pruned = db.prepare('DELETE FROM block_trades WHERE size < ?').run(config.blockMinSize).changes;
+      db.prepare('INSERT INTO migrations (name, applied_at) VALUES (?, ?)').run(LOT_FIX, Date.now());
+      if (changes) console.log(`[migrate] ${LOT_FIX}: corrected ${changes} rows, pruned ${pruned} sub-block rows`);
+    });
+    tx();
+  }
 }
 
 export async function getWeeklyReport(weekEnding) {
