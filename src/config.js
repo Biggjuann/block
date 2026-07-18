@@ -92,10 +92,12 @@ export const config = {
     sigma: num(process.env.SETUPS_SIGMA, 2),
     minBaseline: num(process.env.SETUPS_MIN_BASELINE, 5),
   },
-  // AI Daily News brief (Claude) + optional external news-signal engine.
+  // AI Daily News brief + weekly review (Claude) + optional news-signal engine.
   news: {
-    model: process.env.NEWS_MODEL || 'claude-opus-4-8',
-    // Cheaper model used to extract structured themes/ideas from each brief.
+    // Model that writes the daily brief and weekly review. Haiku by default to
+    // keep run cost low (Opus briefs ran ~$7 each); override with NEWS_MODEL.
+    model: process.env.NEWS_MODEL || 'claude-haiku-4-5',
+    // Model used to extract structured themes/ideas from each brief.
     extractModel: process.env.NEWS_EXTRACT_MODEL || 'claude-haiku-4-5',
     // Base URL of the News sentiment/signals service (the FastAPI engine):
     // exposes GET /signals and GET /signals/{ticker}. Leave empty to skip it.
