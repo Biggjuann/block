@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { config } from './config.js';
+import { config, supportsDeepThinking } from './config.js';
 import {
   getDailyReport, getRecentThemes, getRecentIdeas,
   getTopTrades, getPressure, getStats, queryHistory,
@@ -167,6 +167,10 @@ Today is Friday ${weekEnding}. Focus the forward-looking research on the week st
 
   const client = new Anthropic();
   const tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 12 }];
+  // Adaptive thinking / high effort only for models that accept them (Haiku 400s).
+  const deep = supportsDeepThinking(config.news.model)
+    ? { thinking: { type: 'adaptive' }, output_config: { effort: 'high' } }
+    : {};
   let messages = [{ role: 'user', content: user }];
   let resp;
   for (let i = 0; i < 5; i++) {
@@ -176,8 +180,7 @@ Today is Friday ${weekEnding}. Focus the forward-looking research on the week st
         max_tokens: 20000,
         system,
         tools,
-        thinking: { type: 'adaptive' },
-        output_config: { effort: 'high' },
+        ...deep,
         messages,
       })
       .finalMessage();

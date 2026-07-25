@@ -1,5 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk';
-import { config } from './config.js';
+import { config, supportsDeepThinking } from './config.js';
 import {
   getTopTrades, getPressure, getStats, queryHistory,
   getRecentThemes, getRecentIdeas, getRecentDailyReports,
@@ -169,6 +169,11 @@ Focus your research on news from on or around ${date}.`;
 
   const client = new Anthropic();
   const tools = [{ type: 'web_search_20260209', name: 'web_search', max_uses: 10 }];
+  // Adaptive thinking / high effort only for models that accept them (Opus/
+  // Sonnet); Haiku 400s on `thinking:{type:'adaptive'}`.
+  const deep = supportsDeepThinking(config.news.model)
+    ? { thinking: { type: 'adaptive' }, output_config: { effort: 'high' } }
+    : {};
   let messages = [{ role: 'user', content: user }];
   let resp;
   for (let i = 0; i < 5; i++) {
@@ -178,8 +183,7 @@ Focus your research on news from on or around ${date}.`;
         max_tokens: 16000,
         system,
         tools,
-        thinking: { type: 'adaptive' },
-        output_config: { effort: 'high' },
+        ...deep,
         messages,
       })
       .finalMessage();

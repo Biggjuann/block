@@ -94,9 +94,11 @@ export const config = {
   },
   // AI Daily News brief + weekly review (Claude) + optional news-signal engine.
   news: {
-    // Model that writes the daily brief and weekly review. Haiku by default to
-    // keep run cost low (Opus briefs ran ~$7 each); override with NEWS_MODEL.
-    model: process.env.NEWS_MODEL || 'claude-haiku-4-5',
+    // Model that writes the daily brief and weekly review. Opus gives the
+    // deepest analysis (adaptive thinking + high effort). Override with
+    // NEWS_MODEL to cut cost — the request adapts, so a model without adaptive
+    // thinking (e.g. claude-haiku-4-5) still works, just without that step.
+    model: process.env.NEWS_MODEL || 'claude-opus-4-8',
     // Model used to extract structured themes/ideas from each brief.
     extractModel: process.env.NEWS_EXTRACT_MODEL || 'claude-haiku-4-5',
     // Base URL of the News sentiment/signals service (the FastAPI engine):
@@ -123,3 +125,8 @@ function decideSimulator() {
 }
 
 export const useSimulator = decideSimulator();
+
+// Adaptive thinking + high effort are only accepted by the larger models
+// (Opus/Sonnet). Haiku rejects `thinking:{type:'adaptive'}` with a 400, so the
+// brief/weekly request must include those params only for supported models.
+export const supportsDeepThinking = (model) => /opus|sonnet/i.test(model || '');
