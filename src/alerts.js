@@ -36,6 +36,24 @@ export function evaluateAlert(trade) {
   return { trade, reasons, at: now };
 }
 
+export async function dispatchDiscordSweep(sweep) {
+  if (!config.alerts.discordWebhook) return;
+  const arrow = sweep.side === 'buy' ? '🟢▲' : '🔴▼';
+  const line =
+    `${arrow} **SWEEP · ${sweep.ticker}** ${sweep.side.toUpperCase()} — ` +
+    `${money(sweep.totalValue)} across ${sweep.count} prints ` +
+    `($${sweep.priceLow}–$${sweep.priceHigh})`;
+  try {
+    await fetch(config.alerts.discordWebhook, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: JSON.stringify({ content: line }),
+    });
+  } catch (err) {
+    console.error('discord sweep failed', err.message);
+  }
+}
+
 export async function dispatchDiscord(alert) {
   if (!config.alerts.discordWebhook) return;
   const t = alert.trade;

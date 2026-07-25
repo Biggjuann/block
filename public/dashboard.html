@@ -28,12 +28,23 @@
   </header>
 
   <main>
-    <div class="tabs" id="tabs">
-      <div class="tab active" data-tab="top">Top Trades</div>
-      <div class="tab" data-tab="premarket">Volume Leaders</div>
-      <div class="tab" data-tab="heatmap">Heatmap</div>
-      <div class="tab" data-tab="earnings">Earnings <span class="badge">soon</span></div>
-      <div class="tab" data-tab="exdiv">Ex-Dividend <span class="badge">soon</span></div>
+    <div class="dash-controls">
+      <div class="tabs" id="tabs">
+        <div class="tab active" data-tab="top">Top Trades</div>
+        <div class="tab" data-tab="bigprints">Biggest Trades</div>
+        <div class="tab" data-tab="setups">Setups 🎯</div>
+        <div class="tab" data-tab="pressure">Pressure</div>
+        <div class="tab" data-tab="premarket">Volume Leaders</div>
+        <div class="tab" data-tab="heatmap">Heatmap</div>
+        <div class="tab" data-tab="news">Daily News ✨</div>
+        <div class="tab" data-tab="weekly">Week Ahead 🗓️</div>
+      </div>
+      <div class="date-nav">
+        <button id="day-prev" class="ghost-btn sm" title="Previous day">‹</button>
+        <input type="date" id="day-date" class="tool-input" style="width:auto" />
+        <button id="day-next" class="ghost-btn sm" title="Next day">›</button>
+        <button id="day-today" class="ghost-btn sm">Today</button>
+      </div>
     </div>
 
     <div class="dash">
@@ -45,7 +56,7 @@
           <span class="hint" id="prints-count">--</span>
         </div>
         <div class="table-wrap">
-          <table>
+          <table class="sortable" data-sort-key="prints">
             <thead><tr>
               <th>Ticker</th><th class="num">Price</th>
               <th class="num">Size</th><th class="num">Value</th><th>Time</th>

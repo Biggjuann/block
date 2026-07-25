@@ -78,5 +78,15 @@ export const NASDAQ100 = [
   'TTWO', 'TXN', 'VRSK', 'VRTX', 'WBD', 'WDAY', 'XEL', 'ZS',
 ];
 
+// Liquid ETFs (incl. the index funds themselves) — these are NOT S&P/NASDAQ
+// constituents but are among the most active block-trade names, so monitor them.
+export const ETFS = [
+  'SPY', 'QQQ', 'IWM', 'DIA', 'VOO', 'VTI', 'VEA', 'VWO', 'EEM', 'EFA',
+  'XLK', 'XLF', 'XLE', 'XLV', 'XLI', 'XLY', 'XLP', 'XLU', 'XLB', 'XLRE',
+  'XLC', 'SMH', 'SOXX', 'XBI', 'IBB', 'KWEB', 'ARKK', 'GLD', 'SLV', 'GDX',
+  'USO', 'UNG', 'TLT', 'IEF', 'HYG', 'LQD', 'AGG', 'BND', 'VXX', 'UVXY',
+  'SQQQ', 'TQQQ', 'SOXL', 'SOXS', 'TNA', 'SPXL', 'TSLL', 'IBIT', 'JETS', 'MUB',
+];
+
 // Deduplicated, sorted union — the symbols actually monitored.
-export const UNIVERSE = [...new Set([...SP500, ...NASDAQ100])].sort();
+export const UNIVERSE = [...new Set([...SP500, ...NASDAQ100, ...ETFS])].sort();
